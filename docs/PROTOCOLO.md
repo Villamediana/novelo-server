@@ -30,7 +30,7 @@ recusado com `403 https_required` (`REQUIRE_HTTPS=0` desliga).
 }
 ```
 
-→ `{ "device": "<24 caracteres>", "verified": true, "plan": { "kind": "plus", "active": true, "backup": true } }`
+→ `{ "device": "<24 caracteres>", "verified": true, "plan": { "kind": "plus", "active": true } }`
 
 `install` é o que faz o teste não recomeçar numa reinstalação (o app manda um hash do
 `ANDROID_ID`). O plano e os limites do dia ficam presos a ele, não à chave. Cada aparelho tem uma
@@ -121,7 +121,7 @@ Sempre `{ "error": { "code": "…", "message": "…", "retry_after": <s>? } }`.
 | 401 | `unknown_device` | registra de novo (passo 1) e repete |
 | 401 | `bad_signature` | bug de assinatura; não repetir às cegas |
 | 401 | `stale_time` | vem `now` (ms do servidor): corrige a diferença de relógio e repete |
-| 402 | `plan` | teste acabou: segue com a inteligência própria (ou, no backup, não é Novelo+) |
+| 402 | `plan` | teste acabou: segue com a inteligência própria |
 | 403 | `blocked` | para; aparelho bloqueado |
 | 403 | `attestation` | (no registro) aparelho não verificado |
 | 404 | `not_found` | pedido desconhecido |
@@ -142,50 +142,22 @@ mande muda o plano.
 `GET /v1/me` (assinado como um pedido, com o sha256 do corpo vazio) →
 
 ```json
-{ "plan": { "kind": "trial", "active": true, "backup": false, "trial_ends": 1795000000000 }, "now": 1794700000000 }
+{ "plan": { "kind": "trial", "active": true, "trial_ends": 1795000000000 }, "now": 1794700000000 }
 ```
 
 - `kind`: `plus` (Novelo+), `trial` (teste, com `trial_ends`) ou `ended`.
-- `active`: a inteligência do Novelo atende este aparelho. `backup`: pode enviar backup pra nuvem.
+- `active`: a inteligência do Novelo atende este aparelho.
 - Teste acabou e não é Novelo+ → todo `/v1/ask/*` devolve **`402 plan`** (com o `plan` dentro do
   erro) e o app segue com a inteligência própria: no celular ou API.
 - Hoje todo aparelho novo entra como Novelo+ (painel › Custos e limites › Planos). Quando houver
   compra na loja, o app manda o comprovante e o servidor confere com a loja antes de marcar.
 
-## 7. Backup na nuvem
-
-O celular cifra tudo **antes** de enviar; a chave nunca vem pro servidor. O backup é um cofre:
-
-- do segredo de 16 bytes guardado no aparelho saem (HKDF-SHA256): a chave que cifra, o
-  **id do cofre** (32 caracteres base64url) e o **token do cofre** (32 bytes, base64url);
-- o servidor guarda só o hash do token. Quem tem o segredo (o mesmo aparelho, um novo que o
-  recebeu da conta Google, ou quem digitar o código de recuperação) abre o cofre.
-
-Todos os pedidos são assinados como em 2 (`X-Novelo-Device/Time/Request/Signature`, com o método
-certo no texto assinado) e levam `X-Novelo-Vault: <token>`.
-
-| Pedido | O que faz |
-|---|---|
-| `GET /v1/backup/<cofre>` | `{ exists, created, updated, used, quota, manifests: [{ id, size }] }` · `404 no_backup` |
-| `POST /v1/backup/<cofre>/have` `{ "ids": [...] }` | `{ "missing": [...] }`: quais pedaços ainda não estão lá |
-| `PUT /v1/backup/<cofre>/blobs/<id>` (bytes) | guarda um pedaço cifrado (até 4 MB). `<id>` = 43 caracteres base64url |
-| `GET /v1/backup/<cofre>/blobs/<id>` | os bytes do pedaço |
-| `PUT /v1/backup/<cofre>/manifest` `{ "data": "<base64>", "refs": [ids] }` | uma versão nova: o índice cifrado + os pedaços que ela usa. `409 missing` se faltar algum |
-| `GET /v1/backup/<cofre>/manifest[/<id>]` | o índice (o último, ou o `<id>`); o id vem em `X-Novelo-Manifest` |
-| `DELETE /v1/backup/<cofre>` | apaga tudo do cofre |
-
-- **Enviar** (`PUT`, `POST`) exige Novelo+ (`402 plan` sem ele). **Ler e apagar** não exigem: o
-  que a pessoa guardou é dela em qualquer plano.
-- O primeiro envio cria o cofre. Token errado: `403 vault_key`.
-- Ficam as últimas versões (painel: 5); pedaço que nenhuma versão usa some depois de um dia.
-- `413 backup_full` (cota da pessoa) · `507 storage_full` (disco do servidor).
-
-## 8. O que o servidor guarda
+## 7. O que o servidor guarda
 
 De cada pedido: hora, aparelho (código), pedido, modelo, se respondeu, tentativas, tempos, tokens,
 custo e tamanhos. **Nunca** o texto, a foto, o som ou a resposta. Do aparelho: a chave pública,
 versão do app, resultado da verificação, primeira e última vez, o plano e o identificador do
-aparelho (um hash). Do backup: os arquivos cifrados, tamanhos e datas. O endereço IP não é gravado.
+aparelho (um hash). O endereço IP não é gravado.
 
 Prazos: o que é ligado a um aparelho (cada pedido, a contagem de cada dia) some depois dos dias
 configurados no painel (padrão 30); ficam só totais por hora, sem aparelho. O registro de um

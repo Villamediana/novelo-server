@@ -6,7 +6,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { Config } from '../src/config.js';
-import { build } from '../server.js';
+import { build } from '../src/app.js';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

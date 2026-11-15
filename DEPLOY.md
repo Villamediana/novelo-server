@@ -1,17 +1,27 @@
 # Subir o servidor do Novelo
 
-Para o agente (ou a pessoa) do servidor onde isto roda. Do começo ao fim leva uns 10 minutos.
-Nenhum segredo vem no repositório: eles são criados **aí**, no `.env`.
+Para o agente (ou a pessoa) do servidor onde isto roda. Leva uns 10 minutos. Nenhum segredo vem no
+repositório: eles são criados **aí**, no `.env`.
+
+O resultado final é este:
+
+| | Onde | Quem acessa |
+|---|---|---|
+| API (o app fala com ela) | `https://novelo.<domínio>` → `127.0.0.1:<PORT>` | a internet |
+| Painel | `https://novelo-painel.<domínio>` → `127.0.0.1:<ADMIN_PORT>` | só o dono, pelo Cloudflare Access + senha |
 
 ## 1. Requisitos
 
 - Node **22.13 ou mais novo** (`node -v`). Não tem `npm install`: o servidor só usa o que vem no Node.
-- Um jeito de publicar `http://127.0.0.1:8787` em HTTPS (Cloudflare Tunnel, nginx, Caddy).
+- Duas portas livres nesta máquina (padrão 8787 e 8788; use outras se estiverem ocupadas).
+- O túnel da Cloudflare (ou nginx/Caddy) pra publicar as duas em HTTPS.
 
 ## 2. Código e segredos
 
+O repositório é privado: pra clonar, peça ao dono um acesso ao GitHub (um token serve).
+
 ```bash
-git clone git@github.com:Villamediana/novelo-server.git ~/novelo-server
+git clone https://github.com/Villamediana/novelo-server.git ~/novelo-server
 cd ~/novelo-server
 cp .env.example .env && chmod 600 .env
 ```
@@ -20,102 +30,76 @@ No `.env`:
 
 | Variável | O que pôr |
 |---|---|
-| `ADMIN_PASSWORD` | uma senha longa pro painel. Sem ela o painel não sobe |
-| `OPENROUTER_API_KEY` | a chave da OpenRouter (ou deixe vazio e cole pelo painel, que grava aqui) |
+| `ADMIN_PASSWORD` | uma senha longa pro painel (sem ela o painel não sobe). Passe pro dono |
+| `OPENROUTER_API_KEY` | deixe vazio: o dono cola a chave pelo painel, que grava aqui |
+| `PORT` / `ADMIN_PORT` | as portas da API e do painel |
 | `TRUST_PROXY` | `cloudflare` atrás da Cloudflare · `xff` atrás de nginx/Caddy · `none` direto |
-| `HOST` | `127.0.0.1` se o túnel/proxy roda nesta máquina; `0.0.0.0` se roda em outra |
+| `HOST` / `ADMIN_HOST` | `127.0.0.1` (o túnel roda nesta máquina) |
 | `SERVER_SECRET` | deixe vazio: o servidor cria e grava sozinho |
 
-Na OpenRouter, crie a chave **com limite de crédito**: é um segundo teto, além do teto do painel.
+O `.env` pode ser um atalho (link) pra outro arquivo, por exemplo `data/.env` quando o processo
+roda numa caixa de areia que só escreve em `data/`: o servidor escreve no arquivo de verdade.
+Ele escreve em `data/` (banco e uma lista do Google) e no `.env`; não abre subprocesso.
 
-Conferir antes de subir (25 testes, ~8 s, sem internet e sem gastar nada):
+Conferir antes de subir (sem internet e sem gastar nada):
 
 ```bash
 npm test
 ```
 
-## 3. Serviço
+## 3. Deixar rodando
+
+O comando é `node --disable-warning=ExperimentalWarning server.js`, na pasta do repositório. Ele
+precisa voltar sozinho se cair e ao ligar a máquina.
+
+- **systemd:** `deploy/novelo-server.service` (copiar pra `~/.config/systemd/user/`,
+  `systemctl --user enable --now novelo-server`, `loginctl enable-linger "$USER"`).
+- **pm2:** `pm2 start server.js --name novelo-server --node-args="--disable-warning=ExperimentalWarning" --cwd ~/novelo-server && pm2 save`.
+- Ao parar (SIGTERM), ele espera até 20 s os pedidos em andamento; dê esse tempo ao gerenciador.
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp deploy/novelo-server.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now novelo-server
-loginctl enable-linger "$USER"
-journalctl --user -u novelo-server -n 20     # deve mostrar "api: http://…:8787" e "painel: http://…:8788"
-curl -s http://127.0.0.1:8787/health         # {"ok":true,…}
+curl -s http://127.0.0.1:<PORT>/health      # {"ok":true,…,"ready":{…}}
 ```
 
 ## 4. Publicar
 
-Só a porta **8787** vai pra internet, em `https://novelo.simplyonegoal.com` (ou o nome escolhido).
-
-- **Cloudflare Tunnel:** hostname → `http://127.0.0.1:8787`. Nada mais a ajustar.
-- **nginx:** dentro do `location /`:
-  `proxy_pass http://127.0.0.1:8787; proxy_buffering off; proxy_read_timeout 200s; client_max_body_size 8m; proxy_set_header X-Forwarded-For $remote_addr;`
-
-Pedidos demoram (o servidor segura na fila até 150 s e manda um espaço a cada 10 s): o proxy
-não pode guardar a resposta em buffer nem cortar antes de 180 s.
+- **API:** `novelo.<domínio>` → `http://127.0.0.1:<PORT>`. Nada mais a ajustar no túnel.
+  (nginx: `proxy_buffering off; proxy_read_timeout 200s; client_max_body_size 8m;`.)
+  Pedidos demoram (o servidor segura na fila até 150 s e manda um espaço a cada 10 s): o proxy não
+  pode guardar a resposta em buffer nem cortar antes de 180 s.
+- **Painel:** `novelo-painel.<domínio>` → `http://127.0.0.1:<ADMIN_PORT>`, **atrás do Cloudflare Access**
+  com uma política que deixa entrar só o e-mail do dono. Assim ele abre no celular. O painel nunca
+  vai pra internet sem o Access na frente.
+- Na Cloudflare, ligar **Always Use HTTPS** no domínio (o servidor recusa `http://` puro de qualquer jeito).
 
 ```bash
-curl -s https://novelo.simplyonegoal.com/health
+curl -s https://novelo.<domínio>/health
 ```
 
-## 5. Painel
+## 5. Entregar pro dono
 
-A porta **8788 não é publicada**. Dois jeitos de abrir:
+Mande só isto:
 
-- do seu computador: `ssh -L 8788:127.0.0.1:8788 <servidor>` e abrir `http://localhost:8788`;
-- ou um hostname próprio (ex.: `novelo-painel.…`) apontando pra `http://127.0.0.1:8788`
-  **atrás do Cloudflare Access** (só o seu e-mail). A senha do `.env` continua valendo.
+1. o endereço do painel (`https://novelo-painel.<domínio>`) e a senha do painel;
+2. o endereço da API (`https://novelo.<domínio>`), que vai no app.
 
-No painel, nesta ordem:
-
-1. **APIs** → conferir "Chave ····xxxx" na OpenRouter (ou colar a chave).
-2. **Modelos** → em *Ouvir*, *Ver* e *Pensar*: **+ Modelo**, escolher na lista (o preço vem junto), **Testar**.
-   O primeiro da lista atende; os de baixo entram quando o de cima falha ou lota.
-   - *Ouvir* precisa de um modelo que aceite áudio; *Ver*, imagem (a lista já vem filtrada).
-3. **Custos e limites** → teto por dia e por mês; em **Planos**, o que um aparelho novo recebe
-   (hoje Novelo+ pra todos; depois, Teste de N dias).
-4. **Segurança** → deixar em **Observar**. Quando o seu celular aparecer em *Aparelhos* como
-   **Verificado**, trocar pra **Exigir**.
+No painel, ele faz: **APIs** → cola a chave da OpenRouter; **Modelos** → um modelo em *Ouvir*,
+*Ver* e *Pensar*, e **Testar**. Pronto quando `https://novelo.<domínio>/health` mostrar
+`"ready":{"hear":true,"see":true,"think":true}`.
 
 ## 6. Atualizar
 
 ```bash
-cd ~/novelo-server && git pull && systemctl --user restart novelo-server
+cd ~/novelo-server && git pull && <reiniciar: systemctl --user restart novelo-server | pm2 restart novelo-server>
 ```
 
-O reinício espera até 20 s os pedidos em andamento; o app repete sozinho o que cair.
-Configuração e dados ficam em `data/novelo.db` e não são tocados pelo `git pull`.
+Configuração e dados ficam em `data/novelo.db` e não são tocados pelo `git pull`. Vale copiar
+`data/novelo.db` e o `.env` pra outro lugar de vez em quando (`sqlite3 data/novelo.db ".backup 'copia.db'"`).
+O banco não tem texto de ninguém nem chave de API.
 
-## 7. Cópia de segurança
-
-Três coisas: `data/novelo.db` (configuração, aparelhos, planos e números de uso), a pasta
-`data/backups/` (os backups na nuvem das pessoas, já cifrados pelo celular) e o `.env`. O banco não
-tem texto de ninguém nem chave de API.
-
-```bash
-sqlite3 data/novelo.db ".backup 'novelo-$(date +%F).db'"
-rsync -a data/backups/ /outro/disco/novelo-backups/     # é o backup das pessoas: copie pra outro lugar
-```
-
-A pasta `data/backups/` cresce com o uso (painel › Custos e limites › Backup na nuvem: espaço por
-pessoa e teto de tudo). Com menos de 512 MB livres no disco o servidor recusa envios novos e avisa
-em **Visão › Avisos**.
-
-## 8. Capacidade
-
-Um processo só. Ele quase não gasta CPU (espera a resposta dos modelos), então aguenta milhares de
-pedidos abertos ao mesmo tempo; o gargalo é o limite das APIs, e é disso que a fila cuida.
-Ajustes no `.env`, se precisar: `MAX_OPEN` (pedidos abertos, padrão 20000) e `MAX_HELD_MB`
-(memória pros pedidos na fila, padrão 1024).
-
-## 9. Pedido de apagar dados
+## 7. Pedido de apagar dados
 
 Quando alguém pedir pra apagar o que o servidor guarda dela: a pessoa informa o **código do
-aparelho** (no app, Ajustes, embaixo da versão), você busca por ele em **Aparelhos** e usa
-**Apagar**. Somem a chave, o plano e os números de uso. O backup na nuvem só ela apaga, no app
-(desligando o backup), porque só ela tem o segredo.
+aparelho** (no app, Ajustes, embaixo da versão); no painel, **Aparelhos** → buscar → **Apagar**.
 
-Se algo não responder: `journalctl --user -u novelo-server -f` e a aba **Visão › Avisos**.
+Se algo não responder: o log do processo e a aba **Visão › Avisos** do painel.

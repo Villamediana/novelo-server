@@ -45,8 +45,8 @@ const amount = (v, name) => {
 };
 
 export class Admin {
-  constructor({ db, config, settings, devices, limits, router, telemetry, plans, vaults, secret, fetcher = fetch, now = Date.now }) {
-    Object.assign(this, { db, config, settings, devices, limits, router, telemetry, plans, vaults, secret, fetcher, now });
+  constructor({ db, config, settings, devices, limits, router, telemetry, plans, secret, fetcher = fetch, now = Date.now }) {
+    Object.assign(this, { db, config, settings, devices, limits, router, telemetry, plans, secret, fetcher, now });
     this.trust = config.get('TRUST_PROXY', 'none');
     this.httpsOnly = config.get('REQUIRE_HTTPS', '1') !== '0';
     this.fails = new Map();
@@ -171,7 +171,6 @@ export class Admin {
         blocked: count("SELECT COUNT(*) n FROM devices WHERE status = 'blocked'"),
       },
       plans: this.planCounts(),
-      backups: this.vaults.totals(),
       events: this.db.prepare('SELECT ts, kind, message FROM events ORDER BY id DESC LIMIT 12').all(),
       paused: this.settings.get('paused') ? 1 : 0,
       attestation: this.settings.get('attestation'),
@@ -389,8 +388,7 @@ export class Admin {
 
   /**
    * Everything kept of one phone, erased (the person asked: the right to have one's data deleted):
-   * its key, its plan record, what was counted of it. Its cloud backup isn't touched — only who
-   * has its secret can erase that, in the app. The app, if still installed, registers again as new.
+   * its key, its plan record, what was counted of it. The app, if still installed, registers again as new.
    */
   deleteDevice(id) {
     const d = this.db.prepare('SELECT install FROM devices WHERE id = ?').get(id);
