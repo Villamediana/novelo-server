@@ -339,6 +339,9 @@ test('the panel: password, models, keys in the .env only, phones', async () => {
     assert.ok(Math.abs(forSee.json.models[0].price_out - 0.8) < 1e-9);
 
     let cfg = (await call('POST', '/api/routes', { job: 'think', provider_id: 1, model: 'a/texto', price_in: 0.1, price_out: 0.5 })).json;
+    // The panel sees what /health says, without asking twice.
+    assert.equal(cfg.ready.think, true);
+    assert.equal(typeof cfg.ready.hear, 'boolean');
     cfg = (await call('POST', '/api/routes', { job: 'think', provider_id: 1, model: 'a/olho' })).json;
     const [first, second] = cfg.routes;
     cfg = (await call('POST', `/api/routes/${second.id}/move`, { dir: -1 })).json;

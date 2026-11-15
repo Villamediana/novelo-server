@@ -204,6 +204,8 @@ export class Admin {
       jobs: this.db.prepare("SELECT * FROM jobs ORDER BY CASE key WHEN 'hear' THEN 0 WHEN 'see' THEN 1 WHEN 'think' THEN 2 ELSE 3 END, key").all(),
       routes,
       live,
+      // The same answer /health gives: which of the requests has something able to answer now.
+      ready: this.router.ready(),
     };
   }
 
