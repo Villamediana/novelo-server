@@ -378,6 +378,7 @@ async function testApi(id) {
 // What a model takes and can do, in a few words.
 const TAKES = { text: 'texto', image: 'imagem', audio: 'áudio', file: 'arquivo', video: 'vídeo' };
 function capsOf(m) {
+  if (m.kind === 'transcribe') return ['transcrição de áudio', ...(m.lifecycle === 'preview' ? ['preview'] : [])];
   const out = m.input ? Object.keys(TAKES).filter((k) => m.input.includes(k)).map((k) => TAKES[k]) : ['conversa'];
   if (m.params?.some((x) => x === 'reasoning' || x === 'include_reasoning')) out.push('raciocínio');
   if (m.params?.includes('tools')) out.push('ferramentas');
@@ -410,11 +411,12 @@ async function routeDialog(job, route) {
       <div class="options" data-options></div>
       <small class="faint" data-note></small>
       <input type="hidden" name="provider_id" value="${r.provider_id || ''}"><input type="hidden" name="model" value="${esc(r.model)}"></div>
+    <label>Entrada <small>US$ por milhão de tokens</small><input type="number" name="price_in" min="0" step="any" value="${r.price_in}"></label>
+    <label>Saída <small>US$ por milhão de tokens</small><input type="number" name="price_out" min="0" step="any" value="${r.price_out}"></label>
+    <small class="faint wide" data-price-note>${r.price_in || r.price_out ? 'É com esse preço que o teto faz a conta.' : ''}</small>
     <details class="limits wide"><summary>Avançado</summary><div class="form">
       <label>Ao mesmo tempo<input type="number" name="max_concurrency" min="1" value="${r.max_concurrency}"></label>
       <label>Pedidos por minuto <small>0 = sem limite</small><input type="number" name="rpm" min="0" value="${r.rpm}"></label>
-      <label>Entrada, US$ por milhão <small>vem da lista</small><input type="number" name="price_in" min="0" step="any" value="${r.price_in}"></label>
-      <label>Saída, US$ por milhão <small>vem da lista</small><input type="number" name="price_out" min="0" step="any" value="${r.price_out}"></label>
       <label>Tempo limite (s)<input type="number" name="timeout_s" min="5" max="600" value="${r.timeout_s}"></label>
       <label class="check"><input type="checkbox" name="enabled" ${r.enabled ? 'checked' : ''}>Ligado</label>
       <label class="wide">Extras do pedido <small>JSON somado a cada chamada, ex.: {"reasoning":{"effort":"low"}}</small><textarea name="extra">${esc(r.extra)}</textarea></label>
@@ -482,8 +484,16 @@ async function routeDialog(job, route) {
     form.provider_id.value = b.dataset.pid;
     form.model.value = b.dataset.pick;
     const m = groups.find((g) => g.p.id === Number(b.dataset.pid))?.models.find((x) => x.id === b.dataset.pick);
-    form.price_in.value = m?.priced ? +m.price_in.toFixed(6) : 0;
-    form.price_out.value = m?.priced ? +m.price_out.toFixed(6) : 0;
+    const who = groups.find((g) => g.p.id === Number(b.dataset.pid))?.p;
+    if (m?.priced) {
+      form.price_in.value = +m.price_in.toFixed(6);
+      form.price_out.value = +m.price_out.toFixed(6);
+      $('[data-price-note]', dialog).textContent = `Preço que a ${who?.name ?? 'API'} informa.`;
+    } else {
+      form.price_in.value = 0;
+      form.price_out.value = 0;
+      $('[data-price-note]', dialog).textContent = `A ${who?.name ?? 'API'} não informa o preço: coloque o da página de preços dela (é com ele que o teto faz a conta).`;
+    }
     showChosen();
     draw();
   };
@@ -658,6 +668,54 @@ function aparelhos() {
     <div class="actions">${q.offset ? '<button class="btn" data-act="devices-page" data-d="-50">Anteriores</button>' : ''}${d?.more ? '<button class="btn" data-act="devices-page" data-d="50">Próximos</button>' : ''}</div>`;
 }
 
+// ── Teto de gasto ──────────────────────────────────────────────────────────
+// A typical request of each sense, in tokens (in, out): what a phone's daily ceiling is measured in.
+const TYPICAL = { think: [3000, 1500], see: [2500, 600], hear: [1000, 100] };
+const brl = (v) => `R$ ${(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** The three ceilings as they are now, how they were worked out, and what fits in a phone's day. */
+function budgetResult(c) {
+  const s = c.settings;
+  const b = c.budget;
+  const auto = Boolean(s.budget_auto) && b;
+  const cell = (label, v, note) => `<div class="budget-num"><span>${label}</span><b class="num">${v ? usd(v, v < 1 ? 3 : 2) : 'sem teto'}</b>${note ? `<small>${note}</small>` : ''}</div>`;
+  const fits = c.jobs.filter((j) => j.enabled).map((j) => {
+    const r = c.routes.find((x) => x.job === j.key && x.enabled);
+    if (!r) return '';
+    const [tin, tout] = TYPICAL[j.key] ?? [2000, 500];
+    const each = (tin * r.price_in + tout * r.price_out) / 1e6;
+    const what = !each ? '<span class="faint">sem preço no modelo</span>'
+      : s.device_day_usd ? `≈ <b>${num(Math.floor(s.device_day_usd / each))}</b> por dia <span class="faint">(${usd(each, 5)} cada)</span>` : `${usd(each, 5)} cada`;
+    return `<li>${icon(j.key)}<span><b>${esc(j.label)}</b> · ${esc(shortModel(r.model))}</span><span>${what}</span></li>`;
+  }).join('');
+  return `<div class="budget-grid">
+      ${cell('Por aparelho, por dia', s.device_day_usd, auto ? `${usd(b.device_month_usd, 2)} por mês` : '')}
+      ${cell('Total por mês', s.budget_month_usd, auto ? (b.budget_month_usd <= s.budget_floor_usd ? `o mínimo · ${num(b.plus)} no Novelo+` : `${num(b.plus)} no Novelo+`) : '')}
+      ${cell('Total por dia', s.budget_day_usd, '')}</div>
+    ${auto ? `<p class="faint small">${brl(s.plus_price_brl)} − ${num(s.store_fee_pct)}% da loja = ${brl(b.net_brl)} · − ${num(s.margin_pct)}% de lucro = <b>${brl(b.ai_brl)}</b> pra inteligência, por assinante no mês.</p>` : ''}
+    ${fits ? `<h3 class="label small-label">Cabe num aparelho, por dia</h3><ul class="fits">${fits}</ul>` : ''}`;
+}
+
+function budgetCard(c) {
+  const s = c.settings;
+  const auto = Boolean(s.budget_auto);
+  return `<div class="card rise" style="--i:1"><div class="row-card"><div><h2>Teto de gasto</h2>
+      <p class="sub">${auto ? 'Automático: sai do preço do Novelo+, com a parte da loja e o lucro já descontados.' : 'À mão. Batendo o teto, os pagos param; os grátis seguem.'}</p></div>
+      <label class="switch on-good" title="Teto automático"><input type="checkbox" name="budget_auto" ${auto ? 'checked' : ''}><i></i></label></div>
+    ${auto ? `<div class="form">
+      <label>Novelo+ (R$ por mês)<input type="number" name="plus_price_brl" min="0" step="any" value="${s.plus_price_brl}"></label>
+      <label>Parte da loja (%) <small>Google Play: 15</small><input type="number" name="store_fee_pct" min="0" max="99" step="any" value="${s.store_fee_pct}"></label>
+      <label>Lucro (%)<input type="number" name="margin_pct" min="0" max="99" step="any" value="${s.margin_pct}"></label>
+      <label>Dólar (R$) <small>${s.usd_auto ? `do dia${s.usd_brl_at ? `, ${when(s.usd_brl_at)}` : ''}` : 'fixo · <button type="button" class="link" data-act="usd-auto">usar o do dia</button>'}</small><input type="number" name="usd_brl" min="0" step="any" value="${s.usd_brl}"></label>
+      <label>Mínimo por mês (US$) <small>enquanto há poucos assinantes</small><input type="number" name="budget_floor_usd" min="0" step="any" value="${s.budget_floor_usd}"></label>
+    </div>` : `<div class="form">
+      <label>Total por mês (US$) <small>0 = sem teto</small><input type="number" name="budget_month_usd" min="0" step="any" value="${s.budget_month_usd}"></label>
+      <label>Total por dia (US$) <small>0 = sem teto</small><input type="number" name="budget_day_usd" min="0" step="any" value="${s.budget_day_usd}"></label>
+      <label>Por aparelho, por dia (US$) <small>0 = sem teto</small><input type="number" name="device_day_usd" min="0" step="any" value="${s.device_day_usd}"></label>
+    </div>`}
+    <div class="budget" data-budget>${budgetResult(c)}</div></div>`;
+}
+
 // ── Ajustes ────────────────────────────────────────────────────────────────
 function ajustes() {
   const s = state.config.settings;
@@ -672,15 +730,12 @@ function ajustes() {
       <div class="card rise" style="--i:0"><h2>Quem instala o app</h2><p class="sub">entra como</p>
         <div class="choice two">${plans.map(([k, title, text]) => `<label><input type="radio" name="new_plan" value="${k}" ${s.new_plan === k ? 'checked' : ''}><b>${title}</b><small class="sub">${text}</small></label>`).join('')}</div>
         <div class="form"><label>Dias de teste<input type="number" name="trial_days" min="0" value="${s.trial_days}"></label></div></div>
-      <div class="card rise" style="--i:1"><h2>Teto de gasto</h2><p class="sub">Batendo o teto, os pagos param; os grátis seguem.</p>
-        <div class="form"><label>Por dia (US$) <small>0 = sem teto</small><input type="number" name="budget_day_usd" min="0" step="any" value="${s.budget_day_usd}"></label>
-        <label>Por mês (US$) <small>0 = sem teto</small><input type="number" name="budget_month_usd" min="0" step="any" value="${s.budget_month_usd}"></label></div></div>
+      ${budgetCard(state.config)}
       <div class="card rise" style="--i:2"><h2>Verificação do aparelho</h2>
         <div class="choice">${modes.map(([k, title, text]) => `<label><input type="radio" name="attestation" value="${k}" ${s.attestation === k ? 'checked' : ''}><b>${title}</b><small class="sub">${text}</small></label>`).join('')}</div></div>
       <div class="card row-card rise" style="--i:3"><div><h2>Pausar tudo</h2><p class="sub">O app recebe "em manutenção" e guarda os pedidos pra depois.</p></div>
         <label class="switch" title="Pausar"><input type="checkbox" name="paused" ${s.paused ? 'checked' : ''}><i></i></label></div>
       <details class="more" data-key="advanced"><summary>Avançado</summary><div class="card"><div class="form">
-        <label>Gasto por aparelho, por dia (US$) <small>0 = sem teto</small><input type="number" name="device_day_usd" min="0" step="any" value="${s.device_day_usd}"></label>
         <label>Aparelhos novos por endereço, por dia <small>0 = sem limite</small><input type="number" name="register_per_ip_day" min="0" value="${s.register_per_ip_day}"></label>
         <label>Aparelhos novos por dia, ao todo <small>0 = sem limite</small><input type="number" name="register_per_day" min="0" value="${s.register_per_day}"></label>
         <label>Fuso do dia<input type="text" name="timezone" value="${esc(s.timezone)}"></label>
@@ -716,6 +771,10 @@ document.addEventListener('click', async (e) => {
     case 'logout':
       await api('POST', '/logout', {}).catch(() => {});
       return login();
+    case 'usd-auto': {
+      const out = await attempt(() => api('PUT', '/settings', { usd_auto: 1 }), 'Dólar do dia');
+      return out && done(out);
+    }
     case 'resume': {
       const out = await attempt(() => api('PUT', '/settings', { paused: 0 }), 'Retomado');
       return out && refresh();
@@ -783,7 +842,13 @@ document.addEventListener('change', async (e) => {
   if (!form || dialog.contains(form) || !el.name) return;
   let out;
   if (form.dataset.form === 'settings') {
-    out = await attempt(() => api('PUT', '/settings', { [el.name]: el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value }), 'Salvo');
+    const body = { [el.name]: el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value };
+    // A dollar typed by hand stays: it is no longer the day's.
+    if (el.name === 'usd_brl') body.usd_auto = 0;
+    out = await attempt(() => api('PUT', '/settings', body), 'Salvo');
+    if (out && ['budget_auto', 'usd_brl'].includes(el.name)) return done(out);
+    const box = $('[data-budget]');
+    if (out && box) box.innerHTML = budgetResult(out);
   } else if (form.dataset.form === 'job') {
     const f = Object.fromEntries(new FormData(form));
     for (const box of form.querySelectorAll('input[type=checkbox]')) f[box.name] = box.checked ? 1 : 0;

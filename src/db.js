@@ -134,6 +134,17 @@ export const DEFAULTS = {
   budget_month_usd: 60,
   // One phone, one day (USD). 0 = no ceiling.
   device_day_usd: 0.25,
+  // "Automático" (1): the three ceilings above are worked out by the server (budget.js) from what Novelo+
+  // brings in: the price (R$), minus the store's cut (%), minus the profit kept (%), at the dollar's rate
+  // (fetched twice a day while usd_auto is 1); the monthly one never under the floor (USD).
+  budget_auto: 0,
+  plus_price_brl: 19.9,
+  store_fee_pct: 15,
+  margin_pct: 30,
+  usd_brl: 5.67,
+  usd_auto: 1,
+  usd_brl_at: 0,
+  budget_floor_usd: 5,
   // The day turns at midnight here.
   timezone: 'America/Sao_Paulo',
   // Who may register: 'off' (anyone), 'observe' (the phone's proof is checked and noted, not demanded), 'require'.

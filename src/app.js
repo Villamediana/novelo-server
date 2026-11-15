@@ -10,6 +10,7 @@ import { Api } from './api.js';
 import { Admin } from './admin.js';
 import { Plans } from './plans.js';
 import { googleRoots, Revocations } from './attest.js';
+import { AutoBudget } from './budget.js';
 
 export function build({ config = new Config(), dataDir = config.dataDir, fetcher = fetch, now = Date.now, roots = googleRoots(), heartbeatMs } = {}) {
   const db = openDb(dataDir);
@@ -22,7 +23,10 @@ export function build({ config = new Config(), dataDir = config.dataDir, fetcher
   const telemetry = new Telemetry({ db, now });
   const router = new Router({ db, config, settings, limits, fetcher, now });
   const api = new Api({ config, settings, devices, limits, router, telemetry, plans, now, heartbeatMs });
-  const admin = new Admin({ db, config, settings, devices, limits, router, telemetry, plans, secret, fetcher, now });
+  const budget = new AutoBudget({ db, settings, fetcher, now });
+  const admin = new Admin({ db, config, settings, devices, limits, router, telemetry, plans, budget, secret, fetcher, now });
+  budget.apply();
+  budget.refreshRate();
 
   const flush = () => {
     try {
@@ -36,6 +40,15 @@ export function build({ config = new Config(), dataDir = config.dataDir, fetcher
     setInterval(flush, 1000),
     setInterval(() => limits.prune(), 10 * 60_000),
     setInterval(() => telemetry.prune(settings.get('keep_days')), 6 * 3600_000),
+    // New subscribers move the automatic ceilings; the dollar, twice a day.
+    setInterval(() => {
+      try {
+        budget.apply();
+      } catch (e) {
+        console.error('teto:', e);
+      }
+      budget.refreshRate();
+    }, 3600_000),
   ];
   timers.forEach((t) => t.unref());
 
@@ -47,7 +60,7 @@ export function build({ config = new Config(), dataDir = config.dataDir, fetcher
     flush();
     db.close();
   };
-  return { db, config, settings, devices, limits, telemetry, router, api, admin, plans, revocations, flush, close };
+  return { db, config, settings, devices, limits, telemetry, router, api, admin, plans, budget, revocations, flush, close };
 }
 
 export function listen(handler, host, port, name) {

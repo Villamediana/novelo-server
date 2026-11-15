@@ -458,3 +458,35 @@ test('Azure lists what is deployed and chats, by the deployment\'s name', async 
   assert.equal(list[0].anyInput, true);
   assert.ok(seen.some((x) => x.url === 'https://r.openai.azure.com/openai/deployments?api-version=2022-12-01' && x.headers['api-key'] === 'k'));
 });
+
+test('a transcription model hears by its own door: the recording as a file, "-" when nothing is said', async () => {
+  const { transcribe, isTranscriber } = await import('../src/upstream.js');
+  const { audioOf } = await import('../src/router.js');
+  assert.equal(isTranscriber('gpt-4o-mini-transcribe'), true);
+  assert.equal(isTranscriber('whisper-1'), true);
+  assert.equal(isTranscriber('gpt-6-luna'), false);
+  const body = { messages: [{ role: 'system', content: 'Transcribe…' }, { role: 'user', content: [{ type: 'input_audio', input_audio: { data: Buffer.from('RIFF....').toString('base64'), format: 'wav' } }] }] };
+  assert.equal(audioOf(body).format, 'wav');
+  assert.equal(audioOf({ messages: [{ role: 'user', content: 'oi' }] }), null);
+  const seen = [];
+  let answer = { text: ' olá, tudo bem ', usage: { input_tokens: 120, output_tokens: 8 } };
+  const fetcher = async (url, init) => {
+    seen.push({ url, headers: init.headers, form: init.body });
+    if (url.includes('/openai/v1/audio/transcriptions') && seen.length === 3) return new Response('{"error":{"message":"Resource not found"}}', { status: 404 });
+    return new Response(JSON.stringify(answer), { status: 200 });
+  };
+  const out = await transcribe({ baseUrl: 'https://r.openai.azure.com/openai/v1', key: 'k', model: 'gpt-4o-mini-transcribe', audio: audioOf(body), fetcher });
+  assert.equal(out.text, 'olá, tudo bem');
+  assert.equal(out.tokensIn, 120);
+  assert.equal(seen[0].url, 'https://r.openai.azure.com/openai/v1/audio/transcriptions');
+  assert.equal(seen[0].headers['api-key'], 'k');
+  assert.equal(seen[0].form.get('model'), 'gpt-4o-mini-transcribe');
+  assert.equal(seen[0].form.get('file').type, 'audio/wav');
+  answer = { text: '' };
+  assert.equal((await transcribe({ baseUrl: 'https://api.openai.com/v1', key: 'k2', model: 'whisper-1', audio: { data: '', format: 'wav' }, fetcher })).text, '-');
+  assert.equal(seen[1].headers.Authorization, 'Bearer k2');
+  // An Azure resource without it in v1: by the deployment.
+  answer = { text: 'oi' };
+  assert.equal((await transcribe({ baseUrl: 'https://r.openai.azure.com/openai/v1', key: 'k', model: 'meu-transcribe', audio: { data: '', format: 'wav' }, fetcher })).text, 'oi');
+  assert.match(seen[3].url, /\/openai\/deployments\/meu-transcribe\/audio\/transcriptions\?api-version=/);
+});
