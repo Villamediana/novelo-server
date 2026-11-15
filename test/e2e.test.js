@@ -335,8 +335,14 @@ test('the panel: password, models, keys in the .env only, phones', async () => {
       { id: 'a/olho', name: 'Olho', context_length: 64000, pricing: { prompt: '0.0000002', completion: '0.0000008' }, architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] } },
     ];
     const forSee = await call('GET', '/api/providers/1/models?job=see');
-    assert.deepEqual(forSee.json.models.map((m) => m.id), ['a/olho']);
+    // All of them, with what each takes: the ones that see first, the others after, marked.
+    assert.deepEqual(forSee.json.models.map((m) => [m.id, m.fits]), [['a/olho', true], ['a/texto', false]]);
+    assert.deepEqual(forSee.json.models[0].input, ['text', 'image']);
     assert.ok(Math.abs(forSee.json.models[0].price_out - 0.8) < 1e-9);
+    // Connected: the key is there and the API answers with its models.
+    const tried = (await call('POST', '/api/providers/1/test')).json;
+    assert.equal(tried.ok, true);
+    assert.equal(tried.models, 2);
 
     let cfg = (await call('POST', '/api/routes', { job: 'think', provider_id: 1, model: 'a/texto', price_in: 0.1, price_out: 0.5 })).json;
     // The panel sees what /health says, without asking twice.
@@ -415,9 +421,40 @@ test('Azure gets its key in api-key; every other API as a bearer token', async (
   await listModels({ baseUrl: 'https://r.services.ai.azure.com/openai/v1', key: 'k-azure', fetcher });
   await chat({ baseUrl: 'https://api.openai.com/v1', key: 'k-openai', body: {}, fetcher });
   assert.equal(seen[0].url, 'https://r.openai.azure.com/openai/v1/chat/completions');
-  assert.equal(seen[0].headers['api-key'], 'k-azure');
-  assert.equal(seen[0].headers.Authorization, undefined);
-  assert.equal(seen[1].headers['api-key'], 'k-azure');
-  assert.equal(seen[2].headers.Authorization, 'Bearer k-openai');
-  assert.equal(seen[2].headers['api-key'], undefined);
+  const azure = seen.filter((x) => x.url.includes('.azure.com'));
+  assert.ok(azure.length >= 3);
+  for (const x of azure) {
+    assert.equal(x.headers['api-key'], 'k-azure');
+    assert.equal(x.headers.Authorization, undefined);
+  }
+  const openai = seen.find((x) => x.url.startsWith('https://api.openai.com/'));
+  assert.equal(openai.headers.Authorization, 'Bearer k-openai');
+  assert.equal(openai.headers['api-key'], undefined);
+});
+
+test('Azure lists what is deployed and chats, by the deployment\'s name', async () => {
+  const { listModels } = await import('../src/upstream.js');
+  const seen = [];
+  const fetcher = async (url, init) => {
+    seen.push({ url, headers: init.headers });
+    if (url.includes('/openai/deployments')) {
+      return new Response(JSON.stringify({ data: [
+        { id: 'meu-chat', model: 'gpt-x', status: 'succeeded' },
+        { id: 'imagens', model: 'gpt-image-9', status: 'succeeded' },
+        { id: 'novo', model: 'modelo-que-o-catalogo-nao-tem', status: 'succeeded' },
+        { id: 'subindo', model: 'gpt-x', status: 'running' },
+      ] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ data: [
+      { id: 'gpt-x-2026-01-01', capabilities: { chat_completion: true }, lifecycle_status: 'preview' },
+      { id: 'gpt-image-9', capabilities: { inference: true } },
+    ] }), { status: 200 });
+  };
+  const list = await listModels({ baseUrl: 'https://r.openai.azure.com/openai/v1', key: 'k', fetcher });
+  // Deployed and chatting (or unknown to the catalog); not the image one, not the one still going up.
+  assert.deepEqual(list.map((m) => m.id), ['meu-chat', 'novo']);
+  assert.equal(list[0].name, 'meu-chat (gpt-x)');
+  assert.equal(list[0].lifecycle, 'preview');
+  assert.equal(list[0].anyInput, true);
+  assert.ok(seen.some((x) => x.url === 'https://r.openai.azure.com/openai/deployments?api-version=2022-12-01' && x.headers['api-key'] === 'k'));
 });

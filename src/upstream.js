@@ -107,8 +107,51 @@ export async function chat({ baseUrl, key, headers = {}, body, timeoutMs = 90_00
   };
 }
 
+/**
+ * Azure: what the resource has deployed (only those can be called, by the deployment's name), keeping the
+ * ones its catalog says chat. The deployments are listed only by this older version of the API; the v1 one
+ * lists the whole catalog, deployed or not. Azure doesn't say what goes in (audio, images): anyInput.
+ */
+async function azureDeployments({ baseUrl, key, headers, fetcher }) {
+  const origin = new URL(baseUrl).origin;
+  const get = async (path) => {
+    const res = await fetcher(`${origin}${path}`, { headers: { Accept: 'application/json', ...authOf(baseUrl, key), ...headers }, signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) throw new UpstreamError(kindOf(res.status), res.status, `deployments: HTTP ${res.status}`);
+    return res.json();
+  };
+  const [deployed, catalog] = await Promise.all([get('/openai/deployments?api-version=2022-12-01'), get('/openai/v1/models').catch(() => null)]);
+  const known = new Map((Array.isArray(catalog?.data) ? catalog.data : []).map((m) => [String(m.id).toLowerCase(), m]));
+  // The catalog names a model with and without its date ("gpt-x", "gpt-x-2026-09-22").
+  const entry = (model) => {
+    const name = String(model).toLowerCase();
+    return known.get(name) ?? [...known].find(([id]) => id.startsWith(`${name}-`))?.[1];
+  };
+  // Unknown to the catalog: kept (it is deployed; whoever chooses decides).
+  const chats = (model) => {
+    const e = entry(model);
+    return e ? e.capabilities?.chat_completion === true : true;
+  };
+  return (Array.isArray(deployed?.data) ? deployed.data : [])
+    .filter((d) => d && typeof d.id === 'string' && (d.status ?? 'succeeded') === 'succeeded' && chats(d.model ?? d.id))
+    .map((d) => ({
+      lifecycle: String(entry(d.model ?? d.id)?.lifecycle_status ?? ''),
+      id: d.id,
+      name: d.model && d.model !== d.id ? `${d.id} (${d.model})` : d.id,
+      created: Number(d.created_at) || 0,
+      context: 0,
+      input: ['text'],
+      output: ['text'],
+      anyInput: true,
+      priceIn: 0,
+      priceOut: 0,
+      priced: false,
+      params: [],
+    }));
+}
+
 /** The models a provider lists, with what OpenRouter says of each (price per token, what goes in). */
 export async function listModels({ baseUrl, key, headers = {}, fetcher = fetch }) {
+  if (isAzure(baseUrl)) return azureDeployments({ baseUrl, key, headers, fetcher });
   const res = await fetcher(`${baseUrl.replace(/\/+$/, '')}/models`, {
     headers: { Accept: 'application/json', ...authOf(baseUrl, key), ...headers },
     signal: AbortSignal.timeout(20_000),

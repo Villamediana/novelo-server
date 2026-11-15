@@ -50,7 +50,7 @@ const VIEWS = [['inicio', 'Início'], ['inteligencia', 'Inteligência'], ['apare
 const OLD = { visao: 'inicio', modelos: 'inteligencia', apis: 'inteligencia', custos: 'ajustes', seguranca: 'ajustes' };
 const JOB_TEXT = { hear: 'Entende áudio', see: 'Entende imagens', think: 'Pensa e responde' };
 
-const state = { view: location.hash.slice(1) || 'inicio', hours: 24, metric: 'requests', config: null, overview: null, devices: null, deviceQuery: { q: '', filter: 'all', sort: 'seen', offset: 0 }, tests: {}, timer: null, wizard: false };
+const state = { view: location.hash.slice(1) || 'inicio', hours: 24, metric: 'requests', config: null, overview: null, devices: null, deviceQuery: { q: '', filter: 'all', sort: 'seen', offset: 0 }, tests: {}, apiTests: {}, timer: null };
 
 // ── talking to the server ──────────────────────────────────────────────────
 async function api(method, path, body) {
@@ -278,19 +278,38 @@ function inteligencia() {
   return `<div class="head tight"><h1>Inteligência</h1></div>
     <p class="sub lead">Cada sentido usa o primeiro modelo da lista; os de baixo entram se ele falhar ou lotar.</p>
     <h2 class="label">APIs</h2>
-    <div class="apis">${c.providers.map((p, i) => `<button class="api-chip rise ${p.enabled && p.has_key ? 'ok' : 'todo'}" style="--i:${i}" data-act="provider-edit" data-id="${p.id}">
-        <span class="dot"></span><b>${esc(p.name)}</b><small>${!p.enabled ? 'desligada' : p.has_key ? `chave ····${esc(p.key_tail)}` : 'falta a chave'}</small></button>`).join('')}
+    <div class="apis">${c.providers.map((p, i) => {
+      const t = state.apiTests[p.id];
+      const ok = p.enabled && p.has_key && t?.ok !== false;
+      const said = !p.enabled ? 'desligada' : !p.has_key ? 'falta a chave' : t === 'running' ? 'testando…' : t?.ok ? `conectada · ${num(t.models)} modelos` : t ? 'não conectou' : `chave ····${esc(p.key_tail)}`;
+      return `<button class="api-chip rise ${ok ? 'ok' : 'todo'}" style="--i:${i}" data-act="provider-edit" data-id="${p.id}">
+        <span class="dot"></span><b>${esc(p.name)}</b><small>${said}</small></button>`;
+    }).join('')}
       <button class="api-chip add rise" style="--i:${c.providers.length}" data-act="provider-new">${icon('plus')}<b>Conectar</b></button></div>
     ${c.jobs.map(jobCard).join('')}
-    <details class="more" data-key="free"><summary>Modelos grátis, o último recurso</summary><div class="card">
-      <p class="sub">${num(c.live.free.known)} conhecidos${c.live.free.resting.length ? ` · ${c.live.free.resting.length} descansando` : ''}${Object.keys(c.live.free.last_good).length ? ` · último bom: ${Object.values(c.live.free.last_good).map(esc).join(', ')}` : ''}</p>
-      <form class="form" data-form="settings">
-        <label class="wide">Preferidos, na ordem <small>um por linha</small><textarea name="free_preferred">${esc(c.settings.free_preferred)}</textarea></label>
-        <label class="wide">Evitar <small>só quando não sobrar outro</small><textarea name="free_avoid">${esc(c.settings.free_avoid)}</textarea></label>
-        <label>Ao mesmo tempo<input type="number" name="free_max_concurrency" min="1" value="${c.settings.free_max_concurrency}"></label>
-        <label>Por minuto<input type="number" name="free_rpm" min="0" value="${c.settings.free_rpm}"></label>
-        <label>API dos grátis<select name="free_provider">${c.providers.map((p) => `<option value="${p.id}" ${p.id === c.settings.free_provider ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-      </form></div></details>`;
+    ${freeCard(c)}`;
+}
+
+/**
+ * The free models (OpenRouter's, rotated) as the last resort: on or off, and for which senses. Off means
+ * no API for them (free_provider 0): when the own models fail, the request goes unanswered.
+ */
+function freeCard(c) {
+  const s = c.settings;
+  const p = c.providers.find((x) => x.id === s.free_provider);
+  const on = Boolean(p);
+  return `<section class="card free rise" style="--i:6"><div class="row-card"><div><h2>Modelos grátis</h2>
+      <p class="sub">${on ? `O último recurso, da ${esc(p.name)}: entram quando os seus modelos falham ou o teto de gasto bate.` : 'Desligados: se os seus modelos falharem, o pedido fica sem resposta.'}</p></div>
+      <label class="switch on-good" title="Modelos grátis"><input type="checkbox" data-free ${on ? 'checked' : ''}><i></i></label></div>
+    ${on ? `<div class="free-jobs">${c.jobs.map((j) => `<label class="chip-toggle"><input type="checkbox" data-free-job="${j.key}" ${j.free_fallback ? 'checked' : ''}>${icon(j.key)}<span>${esc(j.label)}</span></label>`).join('')}</div>
+      <p class="faint small">${num(c.live.free.known)} grátis disponíveis${c.live.free.resting.length ? ` · ${c.live.free.resting.length} descansando` : ''}${Object.keys(c.live.free.last_good).length ? ` · último que respondeu: ${Object.values(c.live.free.last_good).map(esc).join(', ')}` : ''}</p>
+      <details class="limits" data-key="free-adv"><summary>Avançado</summary><form class="form" data-form="settings">
+        <label>API dos grátis<select name="free_provider">${c.providers.map((x) => `<option value="${x.id}" ${x.id === s.free_provider ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+        <label>Ao mesmo tempo<input type="number" name="free_max_concurrency" min="1" value="${s.free_max_concurrency}"></label>
+        <label>Por minuto<input type="number" name="free_rpm" min="0" value="${s.free_rpm}"></label>
+        <label class="wide">Preferidos, na ordem <small>um por linha</small><textarea name="free_preferred">${esc(s.free_preferred)}</textarea></label>
+        <label class="wide">Evitar <small>só quando não sobrar outro</small><textarea name="free_avoid">${esc(s.free_avoid)}</textarea></label>
+      </form></details>` : ''}</section>`;
 }
 
 function jobCard(j, ji) {
@@ -312,7 +331,7 @@ function jobCard(j, ji) {
       <label>Espera máxima na fila (s)<input type="number" name="wait_s" min="5" max="600" value="${j.wait_s}"></label>
       <label>Tamanho máximo do pedido (KB)<input type="number" name="max_body_kb" min="16" value="${j.max_body_kb}"></label>
       <label>Tokens máximos de resposta<input type="number" name="max_output_tokens" min="16" value="${j.max_output_tokens}"></label>
-      <label class="check"><input type="checkbox" name="free_fallback" ${j.free_fallback ? 'checked' : ''}>Último recurso: modelos grátis</label>
+      <input type="hidden" name="free_fallback" value="${j.free_fallback ? 1 : ''}">
       <label class="check"><input type="checkbox" name="enabled" ${j.enabled ? 'checked' : ''}>Ligado</label>
     </form></details></section>`;
 }
@@ -345,32 +364,52 @@ async function testRoute(id) {
   render();
 }
 
-/** After an API is connected: the senses still without a model, one after the other. */
-function nextInWizard(providerId) {
-  const c = state.config;
-  const next = c.jobs.find((j) => j.enabled && !c.routes.some((r) => r.job === j.key));
-  if (!state.wizard || !next) {
-    state.wizard = false;
-    return;
-  }
-  routeDialog(next.key, null, providerId);
+/** Is the API connected: its key is there and taken (and how many models it offers). */
+async function testApi(id) {
+  state.apiTests[id] = 'running';
+  if (state.view === 'inteligencia') render();
+  const out = await attempt(() => api('POST', `/providers/${id}/test`, {}));
+  state.apiTests[id] = out ?? undefined;
+  if (out) toast(out.ok ? `Conectada: ${num(out.models)} modelos disponíveis` : `Não conectou: ${out.error}`, !out.ok);
+  if (state.view === 'inteligencia') render();
+  return out;
 }
 
-async function routeDialog(job, route, providerId) {
+// What a model takes and can do, in a few words.
+const TAKES = { text: 'texto', image: 'imagem', audio: 'áudio', file: 'arquivo', video: 'vídeo' };
+function capsOf(m) {
+  const out = m.input ? Object.keys(TAKES).filter((k) => m.input.includes(k)).map((k) => TAKES[k]) : ['conversa'];
+  if (m.params?.some((x) => x === 'reasoning' || x === 'include_reasoning')) out.push('raciocínio');
+  if (m.params?.includes('tools')) out.push('ferramentas');
+  if (m.params?.some((x) => x === 'response_format' || x === 'structured_outputs')) out.push('JSON');
+  if (m.lifecycle === 'preview') out.push('preview');
+  return out;
+}
+
+/**
+ * Choosing a model: one search box over the models of every connected API, grouped by API, each with what it
+ * takes and can do (those that fit this sense first). Tapping one picks it, API and all.
+ */
+async function routeDialog(job, route) {
   const c = state.config;
   const keyed = c.providers.filter((p) => p.enabled && p.has_key);
   if (!route && !keyed.length) {
-    toast('Primeiro, conecte uma API');
-    return providerDialog();
+    toast('Primeiro, conecte uma API em Inteligência');
+    return go('inteligencia');
   }
-  const r = route ?? { job, provider_id: providerId ?? keyed[0]?.id ?? c.providers[0]?.id, model: '', enabled: 1, max_concurrency: 32, rpm: 0, price_in: 0, price_out: 0, timeout_s: 90, extra: '{}' };
+  const r = route ?? { job, provider_id: 0, model: '', enabled: 1, max_concurrency: 32, rpm: 0, price_in: 0, price_out: 0, timeout_s: 90, extra: '{}' };
   const j = c.jobs.find((x) => x.key === r.job);
   const label = j?.label ?? r.job;
+  const needWord = r.job === 'hear' ? 'áudio' : r.job === 'see' ? 'imagens' : '';
   dialog.innerHTML = `<div class="dialog-head"><span class="job-ico">${icon(r.job)}</span><div><h2>${route ? 'Editar modelo' : 'Modelo pra ' + esc(label.toLowerCase())}</h2>
-      <small class="faint">${state.wizard ? 'Passo a passo: cancele pra parar' : esc(JOB_TEXT[r.job] ?? '')}</small></div></div>
+      <small class="faint">${esc(JOB_TEXT[r.job] ?? '')}</small></div></div>
     <form class="form" method="dialog">
-    <label class="wide">API<select name="provider_id">${c.providers.map((p) => `<option value="${p.id}" ${p.id === r.provider_id ? 'selected' : ''}>${esc(p.name)}${p.has_key ? '' : ' (sem chave)'}</option>`).join('')}</select></label>
-    <label class="wide">Modelo <small data-count></small><input type="text" name="model" list="models" value="${esc(r.model)}" placeholder="carregando a lista…" autocomplete="off" required><datalist id="models"></datalist></label>
+    <div class="wide picker">
+      <div class="chosen" data-chosen></div>
+      <input type="search" data-find placeholder="Buscar modelo…" autocomplete="off">
+      <div class="options" data-options></div>
+      <small class="faint" data-note></small>
+      <input type="hidden" name="provider_id" value="${r.provider_id || ''}"><input type="hidden" name="model" value="${esc(r.model)}"></div>
     <details class="limits wide"><summary>Avançado</summary><div class="form">
       <label>Ao mesmo tempo<input type="number" name="max_concurrency" min="1" value="${r.max_concurrency}"></label>
       <label>Pedidos por minuto <small>0 = sem limite</small><input type="number" name="rpm" min="0" value="${r.rpm}"></label>
@@ -381,41 +420,76 @@ async function routeDialog(job, route, providerId) {
       <label class="wide">Extras do pedido <small>JSON somado a cada chamada, ex.: {"reasoning":{"effort":"low"}}</small><textarea name="extra">${esc(r.extra)}</textarea></label>
     </div></details>
     <div class="actions wide">${route ? '<button type="button" class="btn danger" data-do="delete">Tirar</button>' : ''}
-      <button type="button" class="btn" data-do="cancel">${state.wizard ? 'Parar' : 'Cancelar'}</button><button class="btn primary">${route ? 'Salvar' : 'Salvar e testar'}</button></div></form>`;
+      <button type="button" class="btn" data-do="cancel">Cancelar</button><button class="btn primary">${route ? 'Salvar' : 'Salvar e testar'}</button></div></form>`;
   const form = $('form', dialog);
-  let models = [];
-  const load = async () => {
-    const p = c.providers.find((x) => x.id === Number(form.provider_id.value));
-    // Azure answers by the name of the deployment, which its list of models doesn't have.
-    if (/\.azure\.com(\/|$)/i.test(p?.base_url ?? '')) {
-      models = [];
-      $('#models', dialog).innerHTML = '';
-      form.model.placeholder = 'nome do deployment no Foundry';
-      $('[data-count]', dialog).textContent = '';
-      return;
-    }
-    form.model.placeholder = 'carregando a lista…';
-    const out = await api('GET', `/providers/${form.provider_id.value}/models?job=${r.job}`).catch(() => null);
-    models = out?.models ?? [];
-    $('#models', dialog).innerHTML = models.map((m) => `<option value="${esc(m.id)}">${esc(m.priced ? `${usd(m.price_in, 2)} → ${usd(m.price_out, 2)}` : m.name)}</option>`).join('');
-    form.model.placeholder = models.length ? 'toque pra ver a lista, ou escreva' : 'nome do modelo';
-    $('[data-count]', dialog).textContent = models.length ? `${num(models.length)} servem pra ${label.toLowerCase()}` : '';
+  const find = $('[data-find]', dialog);
+  const box = $('[data-options]', dialog);
+  // One group per connected API: its models once loaded, or why they didn't come.
+  const groups = keyed.map((p) => ({ p, models: [], loading: true, error: '' }));
+  const chosenNow = () => ({ pid: Number(form.provider_id.value) || 0, id: form.model.value });
+  const showChosen = () => {
+    const { pid, id } = chosenNow();
+    const p = c.providers.find((x) => x.id === pid);
+    $('[data-chosen]', dialog).innerHTML = id ? `${icon('check')}<span><b>${esc(id)}</b><small>${esc(p?.name ?? '')}</small></span>` : '<span class="faint">Nenhum escolhido ainda: toque num modelo da lista</span>';
   };
-  form.provider_id.onchange = load;
-  // Picking one from the list brings its price.
-  form.model.onchange = () => {
-    const m = models.find((x) => x.id === form.model.value.trim());
-    if (m?.priced) {
-      form.price_in.value = +m.price_in.toFixed(6);
-      form.price_out.value = +m.price_out.toFixed(6);
-    }
+  const option = (p, m, on) => {
+    const price = m.priced ? (m.price_in || m.price_out ? `${usd(m.price_in, 2)} → ${usd(m.price_out, 2)} por milhão` : 'grátis') : '';
+    const meta = [price, m.context ? `${compact(m.context)} de contexto` : '', m.name !== m.id ? m.name : ''].filter(Boolean).join(' · ');
+    return `<button type="button" class="opt ${on ? 'on' : ''} ${m.fits === false ? 'nofit' : ''}" data-pid="${p.id}" data-pick="${esc(m.id)}">
+      <b>${esc(m.id)}</b>${m.fits === false && needWord ? `<em>não entende ${needWord}</em>` : ''}
+      <span class="caps">${capsOf(m).map((x) => `<i>${esc(x)}</i>`).join('')}</span>${meta ? `<small>${esc(meta)}</small>` : ''}</button>`;
+  };
+  const draw = () => {
+    const q = find.value.trim();
+    const low = q.toLowerCase();
+    const { pid, id } = chosenNow();
+    box.innerHTML = groups.map((g) => {
+      const on = (m) => g.p.id === pid && m.id === id;
+      const hits = g.models.filter((m) => !low || m.id.toLowerCase().includes(low) || m.name.toLowerCase().includes(low)).sort((a, b) => on(b) - on(a));
+      const shown = hits.slice(0, low ? 80 : 40);
+      const own = q && !g.loading && !g.error && !hits.length ? `<button type="button" class="opt custom" data-pid="${g.p.id}" data-pick="${esc(q)}"><b>Usar “${esc(q)}”</b><small>escrito à mão, na ${esc(g.p.name)}</small></button>` : '';
+      const body = g.loading ? '<p class="empty"><span class="spin"></span></p>'
+        : g.error ? `<p class="faint small pad">Não carregou: ${esc(g.error)}</p>`
+        : shown.map((m) => option(g.p, m, on(m))).join('') + (hits.length > shown.length ? `<p class="faint small pad">mais ${num(hits.length - shown.length)}: busque pelo nome</p>` : '') + (!hits.length && !own ? '<p class="faint small pad">Nenhum com esse nome.</p>' : '');
+      return `<div class="group"><div class="group-head"><b>${esc(g.p.name)}</b><small>${g.loading ? 'carregando…' : g.error ? '' : (() => { const n = low ? hits.length : g.models.length; return `${num(n)} ${low ? (n === 1 ? 'achado' : 'achados') : n === 1 ? 'disponível' : 'disponíveis'}`; })()}</small></div>${body}${own}</div>`;
+    }).join('');
+  };
+  const load = async () => {
+    draw();
+    await Promise.all(groups.map(async (g) => {
+      const out = await api('GET', `/providers/${g.p.id}/models?job=${r.job}`).catch((e) => ((g.error = e.message), null));
+      g.models = out?.models ?? [];
+      g.loading = false;
+      draw();
+    }));
+    const unknown = groups.filter((g) => g.models.some((m) => m.fits === null)).map((g) => g.p.name);
+    const noKey = c.providers.filter((p) => p.enabled && !p.has_key).map((p) => p.name);
+    $('[data-note]', dialog).textContent = [
+      unknown.length && needWord ? `${and(unknown)} não diz quais entendem ${needWord}: escolha um que entenda.` : '',
+      noKey.length ? `Sem chave, ${and(noKey)} fica fora da lista.` : '',
+    ].filter(Boolean).join(' ');
+  };
+  find.oninput = draw;
+  // Enter in the search picks the first one on the list instead of sending the form.
+  find.onkeydown = (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    $('[data-pick]', box)?.click();
+  };
+  box.onclick = (e) => {
+    const b = e.target.closest('[data-pick]');
+    if (!b) return;
+    form.provider_id.value = b.dataset.pid;
+    form.model.value = b.dataset.pick;
+    const m = groups.find((g) => g.p.id === Number(b.dataset.pid))?.models.find((x) => x.id === b.dataset.pick);
+    form.price_in.value = m?.priced ? +m.price_in.toFixed(6) : 0;
+    form.price_out.value = m?.priced ? +m.price_out.toFixed(6) : 0;
+    showChosen();
+    draw();
   };
   form.onclick = async (e) => {
     const what = e.target.dataset?.do;
-    if (what === 'cancel') {
-      state.wizard = false;
-      dialog.close();
-    }
+    if (what === 'cancel') dialog.close();
     if (what === 'delete' && confirm(`Tirar ${r.model}?`)) {
       const out = await attempt(() => api('DELETE', `/routes/${r.id}`), 'Tirado');
       if (out) done(out);
@@ -423,6 +497,7 @@ async function routeDialog(job, route, providerId) {
   };
   form.onsubmit = async (e) => {
     e.preventDefault();
+    if (!form.model.value || !Number(form.provider_id.value)) return toast('Toque num modelo da lista', true);
     const f = Object.fromEntries(new FormData(form));
     const body = { ...f, job: r.job, provider_id: Number(f.provider_id), enabled: form.enabled.checked };
     const out = await attempt(() => (route ? api('PUT', `/routes/${r.id}`, body) : api('POST', '/routes', body)), route ? 'Salvo' : null);
@@ -430,9 +505,9 @@ async function routeDialog(job, route, providerId) {
     done(out);
     if (route) return;
     const added = out.routes.filter((x) => x.job === r.job).reduce((a, b) => (b.id > a.id ? b : a));
-    nextInWizard(body.provider_id);
     testRoute(added.id);
   };
+  showChosen();
   dialog.showModal();
   load();
 }
@@ -489,7 +564,7 @@ function providerDialog(p) {
       ${p?.has_key ? '<button type="button" class="btn quiet danger" data-do="unkey">Tirar a chave</button>' : ''}
     </div></details>
     <div class="actions wide">${p && !p.routes ? '<button type="button" class="btn danger" data-do="delete">Apagar</button>' : ''}
-      <button type="button" class="btn" data-do="cancel">Cancelar</button><button class="btn primary">${fresh ? 'Conectar' : 'Salvar'}</button></div></form>`;
+      ${p?.has_key ? '<button type="button" class="btn" data-do="test">Testar</button>' : ''}<button type="button" class="btn" data-do="cancel">Cancelar</button><button class="btn primary">${fresh ? 'Conectar e testar' : 'Salvar'}</button></div></form>`;
   const form = $('form', dialog);
   const field = (n) => form.elements.namedItem(n);
   if (fresh) {
@@ -511,6 +586,10 @@ function providerDialog(p) {
   form.onclick = async (e) => {
     const what = e.target.dataset?.do;
     if (what === 'cancel') dialog.close();
+    if (what === 'test') {
+      dialog.close();
+      testApi(p.id);
+    }
     if (what === 'delete' && confirm(`Apagar ${v.name}?`)) {
       const out = await attempt(() => api('DELETE', `/providers/${p.id}`), 'Apagada');
       if (out) done(out);
@@ -524,15 +603,13 @@ function providerDialog(p) {
     e.preventDefault();
     const body = { ...Object.fromEntries(new FormData(form)), enabled: field('enabled').checked };
     delete body.preset;
-    const out = await attempt(() => (p ? api('PUT', `/providers/${p.id}`, body) : api('POST', '/providers', body)), body.key ? (fresh ? 'Conectada' : 'Chave trocada') : 'Salvo');
+    const out = await attempt(() => (p ? api('PUT', `/providers/${p.id}`, body) : api('POST', '/providers', body)));
     if (!out) return;
     done(out);
-    // Just connected, with its key: straight on to the senses that still have no model.
-    if (fresh && body.key) {
-      const added = out.providers.reduce((a, b) => (b.id > a.id ? b : a));
-      state.wizard = true;
-      nextInWizard(added.id);
-    }
+    // Saved: is it connected (the key taken, its models listed)? The models themselves are chosen in each sense.
+    const id = p ? p.id : out.providers.reduce((a, b) => (b.id > a.id ? b : a)).id;
+    if (out.providers.find((x) => x.id === id)?.has_key) testApi(id);
+    else toast('Salvo, falta a chave');
   };
   dialog.showModal();
 }
@@ -685,6 +762,19 @@ document.addEventListener('submit', (e) => {
 
 document.addEventListener('change', async (e) => {
   const el = e.target;
+  // The free models: on/off (off = no API for them; on again = the one they had, or OpenRouter), and per sense.
+  if (el.matches?.('[data-free]')) {
+    const c = state.config;
+    if (!el.checked) state.lastFree = c.settings.free_provider;
+    const back = c.providers.find((p) => p.id === state.lastFree) ?? c.providers.find((p) => /openrouter\.ai/i.test(p.base_url)) ?? c.providers[0];
+    const out = await attempt(() => api('PUT', '/settings', { free_provider: el.checked ? back?.id ?? 0 : 0 }), el.checked ? 'Grátis ligados' : 'Grátis desligados');
+    return out ? done(out) : render();
+  }
+  if (el.dataset?.freeJob) {
+    const j = state.config.jobs.find((x) => x.key === el.dataset.freeJob);
+    const out = await attempt(() => api('PUT', `/jobs/${j.key}`, { ...j, free_fallback: el.checked ? 1 : 0 }), 'Salvo');
+    return out ? done(out) : render();
+  }
   if (el.dataset?.plan) {
     await attempt(() => api('PUT', `/devices/${el.dataset.plan}`, { plan: el.value }), 'Plano trocado');
     return loadDevices();
