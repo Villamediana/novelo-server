@@ -1,0 +1,19 @@
+# ~/.config/systemd/user/novelo-server.service
+# systemctl --user daemon-reload && systemctl --user enable --now novelo-server
+# (uma vez: loginctl enable-linger $USER, pra subir sem ninguém logado)
+[Unit]
+Description=Novelo · inteligência
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/novelo-server
+ExecStart=/usr/bin/env node --disable-warning=ExperimentalWarning server.js
+Restart=always
+RestartSec=2
+# Ao parar, os pedidos em andamento têm até 20 s pra terminar.
+TimeoutStopSec=30
+LimitNOFILE=65536
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target

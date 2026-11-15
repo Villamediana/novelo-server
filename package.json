@@ -1,0 +1,12 @@
+{
+  "name": "novelo-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A inteligência embutida do Novelo: o app manda o pedido pronto, o servidor chama o modelo e devolve.",
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
+  }
+}
