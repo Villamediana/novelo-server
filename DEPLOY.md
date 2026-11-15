@@ -18,8 +18,6 @@ O resultado final é este:
 
 ## 2. Código e segredos
 
-O repositório é privado: pra clonar, peça ao dono um acesso ao GitHub (um token serve).
-
 ```bash
 git clone https://github.com/Villamediana/novelo-server.git ~/novelo-server
 cd ~/novelo-server
