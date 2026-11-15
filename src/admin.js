@@ -6,7 +6,7 @@ import path from 'node:path';
 import { HttpError, readBody, parseJson, sendJson, sendError, clientIp, scheme } from './http.js';
 import { Config, ROOT } from './config.js';
 import { DEFAULTS, event } from './db.js';
-import { chat, listModels } from './upstream.js';
+import { chat, listModels, isAzure } from './upstream.js';
 import { merge } from './router.js';
 
 const SESSION = 12 * 3600_000;
@@ -275,16 +275,33 @@ export class Admin {
 
   saveProvider(id, b) {
     const name = String(b.name ?? '').trim().slice(0, 60);
-    const base = String(b.base_url ?? '').trim().replace(/\/+$/, '');
-    const keyEnv = String(b.key_env ?? '').trim();
+    let base = String(b.base_url ?? '').trim().replace(/\/+$/, '');
+    let keyEnv = String(b.key_env ?? '').trim();
+    // The key may come along (a new API in one step). Empty: the one in the .env stays as it is.
+    const key = String(b.key ?? '').trim();
     need(name, 'Nome: obrigatório.');
     need(/^https?:\/\/[^\s]+$/.test(base), 'Endereço: precisa começar com http(s)://');
+    // Azure: the resource's address, as its portal shows it, is enough; the OpenAI way lives in /openai/v1.
+    if (isAzure(base) && !new URL(base).pathname.endsWith('/openai/v1')) base = `${new URL(base).origin}/openai/v1`;
+    // No variable given: one made from the name, not used by another API, so one key never overwrites another's.
+    if (!keyEnv) {
+      const stem = name.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      const root = (/^[A-Z]/.test(stem) ? stem : `API_${stem}`).replace(/_+$/, '').slice(0, 40);
+      const taken = new Set(this.db.prepare('SELECT key_env FROM providers WHERE id IS NOT ?').all(id).map((r) => r.key_env));
+      keyEnv = `${root}_API_KEY`;
+      for (let n = 2; taken.has(keyEnv); n++) keyEnv = `${root}_${n}_API_KEY`;
+    }
     need(Config.validName(keyEnv) && !['ADMIN_PASSWORD', 'SERVER_SECRET'].includes(keyEnv), 'Variável da chave: MAIÚSCULAS_COM_SUBLINHADO (ex.: OPENROUTER_API_KEY).');
+    need(!/\s/.test(key) && key.length <= 400, 'Chave inválida.');
     const headers = jsonObject(b.headers, 'Cabeçalhos');
     const extra = jsonObject(b.extra, 'Extras');
     const enabled = b.enabled === false || b.enabled === 0 ? 0 : 1;
     if (id === null) this.db.prepare('INSERT INTO providers(name,base_url,key_env,headers,extra,enabled) VALUES(?,?,?,?,?,?)').run(name, base, keyEnv, headers, extra, enabled);
     else this.db.prepare('UPDATE providers SET name=?, base_url=?, key_env=?, headers=?, extra=?, enabled=? WHERE id=?').run(name, base, keyEnv, headers, extra, enabled, id);
+    if (key) {
+      this.config.set(keyEnv, key);
+      event(this.db, 'chave', `${name}: chave ${id === null ? 'guardada' : 'trocada'} pelo painel.`);
+    }
     this.modelLists.clear();
     this.router.reload();
     return this.configuration();

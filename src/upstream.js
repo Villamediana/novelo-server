@@ -46,6 +46,21 @@ function textOf(message) {
   return '';
 }
 
+/** Azure (AI Foundry, Azure OpenAI): its address and its way of taking the key differ from the rest. */
+export function isAzure(baseUrl) {
+  try {
+    return /\.(openai\.azure\.com|services\.ai\.azure\.com|cognitiveservices\.azure\.com)$/i.test(new URL(baseUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Azure takes the key in `api-key`; everyone else as a bearer token. No key, no header. */
+function authOf(baseUrl, key) {
+  if (!key) return {};
+  return isAzure(baseUrl) ? { 'api-key': key } : { Authorization: `Bearer ${key}` };
+}
+
 /**
  * POST {base}/chat/completions. Returns { text, tokensIn, tokensOut, cost (USD, or null when the
  * API doesn't say), finish }.
@@ -56,7 +71,7 @@ export async function chat({ baseUrl, key, headers = {}, body, timeoutMs = 90_00
   try {
     res = await fetcher(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${key}`, ...headers },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...authOf(baseUrl, key), ...headers },
       body: typeof body === 'string' ? body : JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -95,7 +110,7 @@ export async function chat({ baseUrl, key, headers = {}, body, timeoutMs = 90_00
 /** The models a provider lists, with what OpenRouter says of each (price per token, what goes in). */
 export async function listModels({ baseUrl, key, headers = {}, fetcher = fetch }) {
   const res = await fetcher(`${baseUrl.replace(/\/+$/, '')}/models`, {
-    headers: { Accept: 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}), ...headers },
+    headers: { Accept: 'application/json', ...authOf(baseUrl, key), ...headers },
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) throw new UpstreamError(kindOf(res.status), res.status, `modelos: HTTP ${res.status}`);

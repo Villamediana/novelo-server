@@ -286,6 +286,13 @@ async function routeDialog(job, route) {
   const form = $('form', dialog);
   let models = [];
   const load = async () => {
+    // Azure answers by the name of the deployment, which its list of models doesn't have.
+    if (/\.azure\.com(\/|$)/i.test(c.providers.find((x) => x.id === Number(form.provider_id.value))?.base_url ?? '')) {
+      models = [];
+      $('#models', dialog).innerHTML = '';
+      form.model.placeholder = 'nome do deployment no Foundry';
+      return;
+    }
     form.model.placeholder = 'carregando a lista…';
     const out = await api('GET', `/providers/${form.provider_id.value}/models?job=${r.job}`).catch(() => null);
     models = out?.models ?? [];
@@ -341,18 +348,66 @@ function apis() {
         <div class="actions wide"><button class="btn primary">Guardar chave</button></div></form></div>`).join('')}`;
 }
 
+// The known ones: picking one fills the address and the key's variable; only the key is left to paste.
+const ADDRESS = ['Endereço', 'o que vem antes de /chat/completions'];
+const PRESETS = [
+  { id: 'openrouter', label: 'OpenRouter', name: 'OpenRouter', base: 'https://openrouter.ai/api/v1', env: 'OPENROUTER_API_KEY', headers: '{"X-Title":"Novelo"}', key: 'sk-or-…' },
+  {
+    id: 'foundry', label: 'Azure AI Foundry', name: 'Foundry', base: '', env: 'FOUNDRY_API_KEY', key: 'a chave 1 ou 2 do recurso',
+    ask: ['Endpoint do recurso', 'como aparece no portal da Azure, em Chaves e Ponto de Extremidade; o resto o servidor completa. Nos modelos, use o nome do deployment.'],
+    placeholder: 'https://meu-recurso.openai.azure.com',
+  },
+  { id: 'openai', label: 'OpenAI', name: 'OpenAI', base: 'https://api.openai.com/v1', env: 'OPENAI_API_KEY', key: 'sk-…' },
+  { id: 'anthropic', label: 'Anthropic (Claude)', name: 'Anthropic', base: 'https://api.anthropic.com/v1', env: 'ANTHROPIC_API_KEY', key: 'sk-ant-…' },
+  { id: 'gemini', label: 'Google Gemini', name: 'Gemini', base: 'https://generativelanguage.googleapis.com/v1beta/openai', env: 'GEMINI_API_KEY', key: 'AIza…' },
+  { id: 'mistral', label: 'Mistral', name: 'Mistral', base: 'https://api.mistral.ai/v1', env: 'MISTRAL_API_KEY' },
+  { id: 'groq', label: 'Groq', name: 'Groq', base: 'https://api.groq.com/openai/v1', env: 'GROQ_API_KEY', key: 'gsk_…' },
+  { id: 'deepseek', label: 'DeepSeek', name: 'DeepSeek', base: 'https://api.deepseek.com/v1', env: 'DEEPSEEK_API_KEY', key: 'sk-…' },
+  { id: 'xai', label: 'xAI (Grok)', name: 'xAI', base: 'https://api.x.ai/v1', env: 'XAI_API_KEY', key: 'xai-…' },
+  { id: 'outra', label: 'Outra, que fale como a OpenAI', name: '', base: 'https://', env: '' },
+];
+
+// A second one of the same kind gets "2" (name and variable), so its key never overwrites the first one's.
+function unused(value, taken, next) {
+  if (!value || !taken.has(value)) return value;
+  let n = 2;
+  while (taken.has(next(n))) n++;
+  return next(n);
+}
+
 function providerDialog(p) {
   const v = p ?? { name: '', base_url: 'https://', key_env: '', headers: '{}', extra: '{}', enabled: 1, routes: 0 };
-  dialog.innerHTML = `<h2>${p ? 'Editar API' : 'Nova API'}</h2><form class="form" method="dialog">
-    <label>Nome<input type="text" name="name" value="${esc(v.name)}" required></label>
-    <label>Variável da chave no .env<input type="text" name="key_env" value="${esc(v.key_env)}" placeholder="MINHA_API_KEY" required></label>
-    <label class="wide">Endereço <small>o que vem antes de /chat/completions</small><input type="text" name="base_url" value="${esc(v.base_url)}" required></label>
+  const fresh = !p;
+  const more = `<label>Variável da chave no .env ${fresh ? '<small>vazio: o servidor escolhe</small>' : ''}<input type="text" name="key_env" value="${esc(v.key_env)}" placeholder="MINHA_API_KEY" ${fresh ? '' : 'required'}></label>
     <label class="wide">Cabeçalhos a mais <small>JSON</small><textarea name="headers">${esc(v.headers)}</textarea></label>
     <label class="wide">Extras de todo pedido <small>JSON</small><textarea name="extra">${esc(v.extra)}</textarea></label>
-    <label class="check"><input type="checkbox" name="enabled" ${v.enabled ? 'checked' : ''}>Ligada</label>
+    <label class="check"><input type="checkbox" name="enabled" ${v.enabled ? 'checked' : ''}>Ligada</label>`;
+  dialog.innerHTML = `<h2>${fresh ? 'Nova API' : 'Editar API'}</h2><form class="form" method="dialog">
+    ${fresh ? `<label class="wide">Provedor<select name="preset" required><option value="" selected disabled>Escolha…</option>${PRESETS.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join('')}</select></label>` : ''}
+    <label>Nome<input type="text" name="name" value="${esc(v.name)}" required></label>
+    <label class="wide"><span data-ask>${ADDRESS[0]}</span> <small data-hint>${ADDRESS[1]}</small><input type="text" name="base_url" value="${esc(v.base_url)}" required></label>
+    ${fresh ? `<label class="wide">Chave <small>fica só no arquivo .env do servidor, nunca volta pra tela</small><input type="password" name="key" autocomplete="off" placeholder="cole a chave aqui"></label>
+    <details class="limits wide"><summary>Avançado</summary><div class="form">${more}</div></details>` : more}
     <div class="actions wide">${p && !p.routes ? '<button type="button" class="btn danger" data-do="delete">Apagar</button>' : ''}
       <button type="button" class="btn" data-do="cancel">Cancelar</button><button class="btn primary">Salvar</button></div></form>`;
   const form = $('form', dialog);
+  const field = (n) => form.elements.namedItem(n);
+  if (fresh) {
+    field('preset').onchange = () => {
+      const x = PRESETS.find((y) => y.id === field('preset').value);
+      const providers = state.config.providers;
+      field('name').value = unused(x.name, new Set(providers.map((q) => q.name)), (n) => `${x.name} ${n}`);
+      field('key_env').value = unused(x.env, new Set(providers.map((q) => q.key_env)), (n) => x.env.replace(/_API_KEY$/, `_${n}_API_KEY`));
+      field('base_url').value = x.base;
+      field('base_url').placeholder = x.placeholder ?? '';
+      field('headers').value = x.headers ?? '{}';
+      field('key').placeholder = x.key ?? 'cole a chave aqui';
+      const [ask, hint] = x.ask ?? ADDRESS;
+      $('[data-ask]', form).textContent = ask;
+      $('[data-hint]', form).textContent = hint;
+      field(x.base && x.base !== 'https://' ? 'key' : 'base_url').focus();
+    };
+  }
   form.onclick = async (e) => {
     if (e.target.dataset?.do === 'cancel') dialog.close();
     if (e.target.dataset?.do === 'delete' && confirm(`Apagar ${v.name}?`)) {
@@ -363,7 +418,8 @@ function providerDialog(p) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const body = { ...Object.fromEntries(new FormData(form)), enabled: form.enabled.checked };
-    const out = await attempt(() => (p ? api('PUT', `/providers/${p.id}`, body) : api('POST', '/providers', body)), 'Salvo');
+    delete body.preset;
+    const out = await attempt(() => (p ? api('PUT', `/providers/${p.id}`, body) : api('POST', '/providers', body)), body.key ? 'Salvo, com a chave' : 'Salvo');
     if (out) done(out);
   };
   dialog.showModal();
