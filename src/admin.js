@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { HttpError, readBody, parseJson, sendJson, sendError, clientIp } from './http.js';
+import { HttpError, readBody, parseJson, sendJson, sendError, clientIp, scheme } from './http.js';
 import { Config, ROOT } from './config.js';
 import { DEFAULTS, event } from './db.js';
 import { chat, listModels } from './upstream.js';
@@ -48,6 +48,7 @@ export class Admin {
   constructor({ db, config, settings, devices, limits, router, telemetry, plans, vaults, secret, fetcher = fetch, now = Date.now }) {
     Object.assign(this, { db, config, settings, devices, limits, router, telemetry, plans, vaults, secret, fetcher, now });
     this.trust = config.get('TRUST_PROXY', 'none');
+    this.httpsOnly = config.get('REQUIRE_HTTPS', '1') !== '0';
     this.fails = new Map();
     this.modelLists = new Map();
   }
@@ -89,6 +90,12 @@ export class Admin {
     const url = new URL(req.url || '/', 'http://x');
     const p = url.pathname;
     try {
+      // Published behind a proxy (Cloudflare Access): never over plain http, where the password would go in the clear.
+      if (this.httpsOnly && scheme(req, this.trust) === 'http') {
+        req.resume();
+        res.writeHead(403, { ...HEADERS, 'Content-Type': 'text/plain; charset=utf-8' }).end('Use https.');
+        return;
+      }
       if (!p.startsWith('/api/')) return this.file(req, res, p);
       if (req.method !== 'GET') need(req.headers['x-novelo-admin'] === '1', 'Pedido inválido.');
       const body = req.method === 'GET' ? {} : parseJson(await readBody(req, 256 * 1024).then((b) => (b.length ? b : Buffer.from('{}'))));

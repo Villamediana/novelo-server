@@ -73,6 +73,23 @@ export function sendError(res, e) {
   }
 }
 
+/**
+ * The scheme the caller used, as the proxy in front says ('https', 'http'); '' when nothing says
+ * (no proxy, or one that doesn't tell): then nothing is assumed.
+ */
+export function scheme(req, trust) {
+  if (trust === 'none') return '';
+  const fwd = req.headers['x-forwarded-proto'];
+  if (typeof fwd === 'string' && fwd) return fwd.split(',')[0].trim().toLowerCase();
+  const visitor = req.headers['cf-visitor'];
+  if (trust === 'cloudflare' && typeof visitor === 'string') {
+    try {
+      return String(JSON.parse(visitor).scheme ?? '').toLowerCase();
+    } catch { /* nothing said */ }
+  }
+  return '';
+}
+
 /** Who is calling. Behind a proxy the socket is the proxy: [trust] says which header to believe. */
 export function clientIp(req, trust) {
   if (trust === 'cloudflare') {

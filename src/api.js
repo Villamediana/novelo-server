@@ -2,7 +2,7 @@
 // chat request without a model); here it is checked, queued, sent to a model and answered. See
 // docs/PROTOCOLO.md.
 import crypto from 'node:crypto';
-import { HttpError, readBody, parseJson, sendJson, sendError, clientIp } from './http.js';
+import { HttpError, readBody, parseJson, sendJson, sendError, clientIp, scheme } from './http.js';
 import { BLOB_MAX, MANIFEST_MAX } from './vaults.js';
 
 const HEARTBEAT = 10_000;
@@ -78,6 +78,9 @@ export class Api {
     this.telemetry = telemetry;
     this.now = now;
     this.trust = config.get('TRUST_PROXY', 'none');
+    // Behind a proxy that says the scheme: a request that came by plain http is refused (what goes
+    // over it — speech, photos, the backup's pieces — would cross the internet in the clear).
+    this.httpsOnly = config.get('REQUIRE_HTTPS', '1') !== '0';
     this.maxHeld = config.int('MAX_HELD_MB', 1024) * 1024 * 1024;
     this.maxOpen = config.int('MAX_OPEN', 20_000);
     this.held = 0;
@@ -118,7 +121,14 @@ export class Api {
   async handle(req, res) {
     const path = (req.url || '/').split('?')[0];
     try {
-      if (req.method === 'GET' && path === '/health') return sendJson(res, 200, { ok: true, time: this.now() });
+      if (req.method === 'GET' && path === '/health') {
+        // Whether each job has a model that can answer (only yes or no: nothing of which or how).
+        return sendJson(res, 200, { ok: true, time: this.now(), paused: this.settings.get('paused') ? 1 : 0, ready: this.router.ready() });
+      }
+      if (this.httpsOnly && scheme(req, this.trust) === 'http') {
+        req.resume();
+        throw new HttpError(403, 'https_required', 'Use https.');
+      }
       if (req.method === 'POST' && path === '/v1/devices/challenge') {
         this.knock(req);
         req.resume();

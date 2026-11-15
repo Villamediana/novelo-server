@@ -4,7 +4,12 @@ O app monta o pedido inteiro (instruções, o que a pessoa disse, a foto ou o so
 *chat completions* da OpenAI, **sem modelo**. O servidor confere quem pede, põe na fila, escolhe o
 modelo, chama e devolve o texto. Nada do conteúdo é gravado.
 
-Base: `https://<servidor>` · tudo JSON · UTF-8.
+Base: `https://<servidor>` · tudo JSON · UTF-8. Atrás do proxy (Cloudflare), o que chegar por `http://` puro é
+recusado com `403 https_required` (`REQUIRE_HTTPS=0` desliga).
+
+`GET /health` → `{ "ok": true, "time": …, "paused": 0, "ready": { "hear": true, "see": true, "think": true } }`:
+`ready` diz só se cada pedido tem um modelo que pode responder agora (ligado, com API ligada e chave).
+É o que conferir antes de publicar uma versão do app que depende do servidor.
 
 ## 1. Registrar o aparelho (uma vez por instalação)
 

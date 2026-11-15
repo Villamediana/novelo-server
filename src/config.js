@@ -52,7 +52,10 @@ export class Config {
   set(name, value) {
     if (!Config.validName(name)) throw new Error('nome de variável inválido');
     if (/[\r\n]/.test(value)) throw new Error('valor inválido');
-    const lines = fs.existsSync(this.file) ? fs.readFileSync(this.file, 'utf8').split(/\r?\n/) : [];
+    // The .env may be a link to the real file (a sandbox that writes only in data/): the real one is
+    // written, beside itself, and the link stays a link.
+    const real = this.realFile();
+    const lines = fs.existsSync(real) ? fs.readFileSync(real, 'utf8').split(/\r?\n/) : [];
     const at = lines.findIndex((l) => new RegExp(`^\\s*${name}\\s*=`).test(l));
     const line = `${name}=${value}`;
     if (at >= 0) lines[at] = line;
@@ -60,13 +63,29 @@ export class Config {
       while (lines.length && lines[lines.length - 1] === '') lines.pop();
       lines.push(line);
     }
-    const tmp = `${this.file}.${process.pid}.tmp`;
+    const tmp = `${real}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, lines.join('\n').replace(/\n*$/, '\n'), { mode: 0o600 });
-    fs.renameSync(tmp, this.file);
-    fs.chmodSync(this.file, 0o600);
+    fs.renameSync(tmp, real);
+    fs.chmodSync(real, 0o600);
     if (value === '') this.values.delete(name);
     else this.values.set(name, value);
     delete this.processEnv[name];
+  }
+
+  /** The file the .env really is: itself, or where its link points (even before that file exists). */
+  realFile() {
+    let file = this.file;
+    for (let i = 0; i < 8; i++) {
+      let st;
+      try {
+        st = fs.lstatSync(file);
+      } catch {
+        return file;
+      }
+      if (!st.isSymbolicLink()) return file;
+      file = path.resolve(path.dirname(file), fs.readlinkSync(file));
+    }
+    throw new Error('.env: links demais');
   }
 
   /** The secret that signs challenges and panel sessions: made once and kept in the .env. */

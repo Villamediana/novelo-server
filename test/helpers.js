@@ -44,10 +44,10 @@ export async function fakeUpstream(script) {
 }
 
 /** The server, with its API (and the panel) listening on free ports. */
-export async function startServer({ upstream, heartbeatMs, password = 'senha-de-teste' } = {}) {
+export async function startServer({ upstream, heartbeatMs, password = 'senha-de-teste', env = '' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'novelo-server-'));
   const envFile = path.join(dir, '.env');
-  fs.writeFileSync(envFile, `ADMIN_PASSWORD=${password}\nOPENROUTER_API_KEY=sk-test-1234\n`);
+  fs.writeFileSync(envFile, `ADMIN_PASSWORD=${password}\nOPENROUTER_API_KEY=sk-test-1234\n${env}`);
   const config = new Config(envFile, {});
   const app = build({ config, dataDir: path.join(dir, 'data'), heartbeatMs, roots: [] });
   if (upstream) app.db.prepare('UPDATE providers SET base_url = ? WHERE id = 1').run(upstream.url);
