@@ -254,6 +254,24 @@ export class Router {
     return this.routes.get(Number(mark.slice(1)))?.model ?? '';
   }
 
+  /**
+   * Per job: it has a model that can answer now (on, with an API that is on and has its key) —
+   * or, for a job that may fall back to the free models, at least those. Yes or no only.
+   */
+  ready() {
+    const free = Boolean(this.freeProvider());
+    const out = {};
+    for (const [key, job] of this.jobs) {
+      const own = (this.dispatcher.order.get(key) ?? []).some((id) => {
+        const r = this.routes.get(id);
+        const p = r && this.providers.get(r.provider_id);
+        return Boolean(p && this.keyOf(p));
+      });
+      out[key] = Boolean(job.enabled) && (own || (Boolean(job.free_fallback) && free && key === 'think'));
+    }
+    return out;
+  }
+
   /** How each lane is right now, for the panel. */
   live() {
     const now = this.now();

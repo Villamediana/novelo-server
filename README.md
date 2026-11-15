@@ -33,6 +33,9 @@ npm test
 | [DEPLOY.md](DEPLOY.md) | subir em produção, passo a passo |
 | [docs/PROTOCOLO.md](docs/PROTOCOLO.md) | o que o app envia e recebe |
 
+O `.env` pode ser um atalho (link) para outro arquivo, por exemplo `data/.env` numa caixa de areia que só
+escreve em `data/`: o servidor (e o painel, ao guardar uma chave) escreve no arquivo de verdade e o atalho fica.
+
 ## Por dentro
 
 | Arquivo | O que faz |
