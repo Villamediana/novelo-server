@@ -358,6 +358,24 @@ test('the panel: password, models, keys in the .env only, phones', async () => {
     assert.equal(s.upstream.calls.at(-1).headers.authorization, 'Bearer sk-or-nova-chave-9876');
     assert.equal((await call('PUT', '/api/providers/1', { name: 'X', base_url: 'https://x', key_env: 'ADMIN_PASSWORD' })).status, 422);
 
+    // A new API in one step: the Azure portal's address is completed, the variable comes from the name, the key goes to the .env.
+    cfg = (await call('POST', '/api/providers', { name: 'Foundry', base_url: 'https://meu-recurso.openai.azure.com/', key_env: '', key: 'chave-do-foundry-1234' })).json;
+    const foundry = cfg.providers.find((p) => p.name === 'Foundry');
+    assert.equal(foundry.base_url, 'https://meu-recurso.openai.azure.com/openai/v1');
+    assert.equal(foundry.key_env, 'FOUNDRY_API_KEY');
+    assert.equal(foundry.key_tail, '1234');
+    assert.equal(JSON.stringify(cfg).includes('chave-do-foundry'), false);
+    assert.match(fs.readFileSync(s.server.envFile, 'utf8'), /^FOUNDRY_API_KEY=chave-do-foundry-1234$/m);
+    // A second one of the same name never takes the first one's variable (nor its key).
+    cfg = (await call('POST', '/api/providers', { name: 'Foundry', base_url: 'https://outro.services.ai.azure.com/api/projects/x' })).json;
+    const another = cfg.providers.filter((p) => p.name === 'Foundry').at(-1);
+    assert.equal(another.key_env, 'FOUNDRY_2_API_KEY');
+    assert.equal(another.base_url, 'https://outro.services.ai.azure.com/openai/v1');
+    assert.equal(another.has_key, false);
+    assert.equal((await call('POST', '/api/providers', { name: 'Y', base_url: 'https://y', key: 'com espaço' })).status, 422);
+    assert.equal((await call('POST', '/api/providers', { name: 'Ação', base_url: 'https://y' })).json.providers.at(-1).key_env, 'ACAO_API_KEY');
+    for (const p of (await call('GET', '/api/config')).json.providers.slice(1)) assert.equal((await call('DELETE', `/api/providers/${p.id}`)).status, 200);
+
     cfg = (await call('PUT', '/api/settings', { budget_day_usd: 12.5, attestation: 'require' })).json;
     assert.equal(cfg.settings.budget_day_usd, 12.5);
     assert.equal((await call('PUT', '/api/settings', { attestation: 'talvez' })).status, 422);
@@ -381,4 +399,22 @@ test('the panel: password, models, keys in the .env only, phones', async () => {
   } finally {
     await s.close();
   }
+});
+
+test('Azure gets its key in api-key; every other API as a bearer token', async () => {
+  const { chat, listModels } = await import('../src/upstream.js');
+  const seen = [];
+  const fetcher = async (url, init) => {
+    seen.push({ url, headers: init.headers });
+    return new Response(url.endsWith('/models') ? '{"data":[]}' : JSON.stringify({ choices: [{ message: { content: 'oi' } }] }), { status: 200 });
+  };
+  await chat({ baseUrl: 'https://r.openai.azure.com/openai/v1', key: 'k-azure', body: {}, fetcher });
+  await listModels({ baseUrl: 'https://r.services.ai.azure.com/openai/v1', key: 'k-azure', fetcher });
+  await chat({ baseUrl: 'https://api.openai.com/v1', key: 'k-openai', body: {}, fetcher });
+  assert.equal(seen[0].url, 'https://r.openai.azure.com/openai/v1/chat/completions');
+  assert.equal(seen[0].headers['api-key'], 'k-azure');
+  assert.equal(seen[0].headers.Authorization, undefined);
+  assert.equal(seen[1].headers['api-key'], 'k-azure');
+  assert.equal(seen[2].headers.Authorization, 'Bearer k-openai');
+  assert.equal(seen[2].headers['api-key'], undefined);
 });
