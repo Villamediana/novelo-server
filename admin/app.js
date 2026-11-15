@@ -8,6 +8,7 @@ const num = (n) => nf.format(Math.round(n || 0));
 const compact = (n) => new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 }).format(n || 0);
 const usd = (n, digits) => `US$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: digits ?? ((n || 0) >= 100 ? 0 : (n || 0) >= 1 ? 2 : 3), maximumFractionDigits: digits ?? ((n || 0) >= 100 ? 0 : (n || 0) >= 1 ? 2 : 3) })}`;
 const secs = (ms) => (ms >= 10_000 ? `${Math.round(ms / 1000)} s` : `${(ms / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s`);
+const size = (b) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} GB` : `${Math.round((b || 0) / 1024 ** 2).toLocaleString('pt-BR')} MB`);
 const pct = (a, b) => (b ? `${((100 * a) / b).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '0%');
 const when = (ts) => new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 const ago = (ts) => {
@@ -147,6 +148,8 @@ function visao() {
       <div class="kpi"><span>Tempo médio</span><div class="num">${ok ? secs(t.ms_sum / ok) : '—'}</div><small>${t.requests ? secs(t.queue_ms_sum / t.requests) : '0 s'} na fila</small></div>
       <div class="kpi"><span>Agora</span><div class="num">${num(flying)}</div><small>${num(waiting)} na fila</small></div>
       <div class="kpi"><span>Aparelhos hoje</span><div class="num">${compact(o.devices.active_today)}</div><small>${num(o.devices.total)} ao todo · ${num(o.devices.new_24h)} novos</small></div>
+      <div class="kpi"><span>Novelo+</span><div class="num">${compact(o.plans.plus)}</div><small>${num(o.plans.trial)} em teste · ${num(o.plans.ended)} encerrados</small></div>
+      <div class="kpi"><span>Backup na nuvem</span><div class="num">${size(o.backups.bytes)}</div><small>${num(o.backups.vaults)} ${o.backups.vaults === 1 ? 'pessoa' : 'pessoas'}</small></div>
     </div>
     <div class="meters">${meter('Gasto de hoje', o.budget.day_usd, o.budget.day_limit)}${meter('Gasto do mês', o.budget.month_usd, o.budget.month_limit)}</div>
     <section><div class="charts">
@@ -380,6 +383,13 @@ function custos() {
       <div class="form"><label>Gasto por aparelho, por dia (US$) <small>0 = sem teto</small><input type="number" name="device_day_usd" min="0" step="any" value="${s.device_day_usd}"></label>
       <label>Aparelhos novos por endereço, por dia <small>0 = sem limite</small><input type="number" name="register_per_ip_day" min="0" value="${s.register_per_ip_day}"></label>
       <label>Aparelhos novos por dia, ao todo <small>0 = sem limite</small><input type="number" name="register_per_day" min="0" value="${s.register_per_day}"></label></div></div></section>
+    <section><div class="card"><h2>Planos</h2><p class="sub">Quem decide o plano é o servidor, nunca o celular. Terminado o teste, a inteligência do Novelo para de atender aquele aparelho e o app segue com a inteligência própria (no celular ou API). Reinstalar o app não recomeça o teste.</p>
+      <div class="form"><label>Aparelho novo entra como<select name="new_plan"><option value="plus" ${s.new_plan === 'plus' ? 'selected' : ''}>Novelo+</option><option value="trial" ${s.new_plan === 'trial' ? 'selected' : ''}>Teste</option></select></label>
+      <label>Dias de teste<input type="number" name="trial_days" min="0" value="${s.trial_days}"></label></div></div></section>
+    <section><div class="card"><h2>Backup na nuvem</h2><p class="sub">Só Novelo+ envia. Chega cifrado do celular: aqui ninguém consegue abrir. Ler de volta e apagar o próprio backup funciona em qualquer plano.</p>
+      <div class="form"><label>Espaço por pessoa (MB)<input type="number" name="backup_quota_mb" min="1" value="${s.backup_quota_mb}"></label>
+      <label>Versões guardadas<input type="number" name="backup_keep" min="1" value="${s.backup_keep}"></label>
+      <label>Teto de tudo (GB) <small>0 = só o limite do disco</small><input type="number" name="backup_total_gb" min="0" step="any" value="${s.backup_total_gb}"></label></div></div></section>
     <section><div class="card"><h2>Registro dos pedidos</h2><p class="sub">Guarda só números (hora, modelo, tempo, tokens, custo). O que a pessoa disse e a resposta nunca são gravados.</p>
       <div class="form"><label>Dias guardando pedido por pedido <small>os totais por hora ficam</small><input type="number" name="keep_days" min="1" value="${s.keep_days}"></label></div></div></section>
     <div class="actions"><button class="btn primary">Salvar</button></div></form>`;
@@ -412,9 +422,13 @@ function aparelhos() {
       <input type="search" name="q" placeholder="Buscar pelo código ou nota" value="${esc(q.q)}" class="search">
       ${seg('filter', [['all', 'Todos'], ['unverified', 'Não verificados'], ['blocked', 'Bloqueados']])}
       ${seg('sort', [['seen', 'Recentes'], ['cost', 'Gasto de hoje']])}</div>
-    <div class="card scroll">${d?.devices.length ? `<table><thead><tr><th>Aparelho</th><th>Visto</th><th>Desde</th><th>App</th><th>Verificação</th><th class="r">Hoje</th><th class="r">Gasto hoje</th><th></th></tr></thead><tbody>
+    <div class="card scroll">${d?.devices.length ? `<table><thead><tr><th>Aparelho</th><th>Visto</th><th>Desde</th><th>App</th><th>Plano</th><th>Verificação</th><th class="r">Hoje</th><th class="r">Gasto hoje</th><th></th></tr></thead><tbody>
       ${d.devices.map((x) => `<tr><td><span class="mono" title="${esc(x.id)}">${esc(x.id.slice(0, 10))}</span>${x.note ? `<br><span class="faint small">${esc(x.note)}</span>` : ''}</td>
         <td>${ago(x.last_seen)}</td><td>${when(x.created)}</td><td>${esc(x.app_version || '—')}</td>
+        <td><select class="plan" data-plan="${x.id}" title="${x.plan.kind === 'trial' ? `até ${when(x.plan.trial_ends)}` : ''}">
+          <option value="plus" ${x.plan.kind === 'plus' ? 'selected' : ''}>Novelo+</option>
+          <option value="trial" ${x.plan.kind === 'trial' ? 'selected' : ''}>${x.plan.kind === 'trial' ? `Teste até ${when(x.plan.trial_ends).slice(0, 5)}` : 'Teste (começar)'}</option>
+          <option value="ended" ${x.plan.kind === 'ended' ? 'selected' : ''}>Encerrado</option></select></td>
         <td>${verified(x)}${x.boot && x.boot !== 'verified' ? ` <span class="faint small">sistema modificado</span>` : ''}</td>
         <td class="r">${num(x.requests)}</td><td class="r">${usd(x.cost)}</td>
         <td class="r">${x.status === 'blocked'
@@ -507,6 +521,13 @@ document.addEventListener('submit', async (e) => {
     out = await attempt(() => api('PUT', `/providers/${form.dataset.id}/key`, f), f.value ? 'Chave guardada' : 'Chave removida');
   }
   if (out) done(out);
+});
+
+document.addEventListener('change', async (e) => {
+  const id = e.target.dataset?.plan;
+  if (!id) return;
+  await attempt(() => api('PUT', `/devices/${id}`, { plan: e.target.value }), 'Plano trocado');
+  loadDevices();
 });
 
 let typing;

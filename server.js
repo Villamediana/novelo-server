@@ -9,6 +9,8 @@ import { Router } from './src/router.js';
 import { Telemetry } from './src/telemetry.js';
 import { Api } from './src/api.js';
 import { Admin } from './src/admin.js';
+import { Plans } from './src/plans.js';
+import { Vaults } from './src/vaults.js';
 import { googleRoots, Revocations } from './src/attest.js';
 
 export function build({ config = new Config(), dataDir = config.dataDir, fetcher = fetch, now = Date.now, roots = googleRoots(), heartbeatMs } = {}) {
@@ -17,11 +19,13 @@ export function build({ config = new Config(), dataDir = config.dataDir, fetcher
   const secret = config.serverSecret();
   const revocations = new Revocations(dataDir, { fetcher });
   const limits = new Limits({ db, settings, now });
-  const devices = new Devices({ db, settings, secret, roots, revocations, now });
+  const plans = new Plans({ db, settings, now });
+  const vaults = new Vaults({ db, settings, dataDir, now });
+  const devices = new Devices({ db, settings, secret, plans, roots, revocations, now });
   const telemetry = new Telemetry({ db, now });
   const router = new Router({ db, config, settings, limits, fetcher, now });
-  const api = new Api({ config, settings, devices, limits, router, telemetry, now, heartbeatMs });
-  const admin = new Admin({ db, config, settings, devices, limits, router, telemetry, secret, fetcher, now });
+  const api = new Api({ config, settings, devices, limits, router, telemetry, plans, vaults, now, heartbeatMs });
+  const admin = new Admin({ db, config, settings, devices, limits, router, telemetry, plans, vaults, secret, fetcher, now });
 
   const flush = () => {
     try {
@@ -46,7 +50,7 @@ export function build({ config = new Config(), dataDir = config.dataDir, fetcher
     flush();
     db.close();
   };
-  return { db, config, settings, devices, limits, telemetry, router, api, admin, revocations, flush, close };
+  return { db, config, settings, devices, limits, telemetry, router, api, admin, plans, vaults, revocations, flush, close };
 }
 
 function listen(handler, host, port, name) {

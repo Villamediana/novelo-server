@@ -11,6 +11,10 @@ a lógica do Novelo continua no app.
   rodízio de modelos grátis da OpenRouter, igual ao que o app fazia sozinho.
 - **Sem login.** Cada instalação cria uma chave no hardware seguro do celular; o Android atesta que
   é um aparelho real rodando o app assinado, e todo pedido vem assinado. Sem assinatura, não custa nada.
+- **Plano no servidor.** Teste de N dias e Novelo+ são decididos aqui; o celular só pergunta.
+  Terminado o teste, o app segue com a inteligência própria (no celular ou API).
+- **Backup na nuvem (Novelo+).** O celular cifra e manda em pedaços; o servidor guarda arquivos
+  que não consegue abrir, com versões, cota por pessoa e apagar de verdade.
 - **Custo sob controle.** Teto por dia e por mês, teto e limites por aparelho, bloqueio.
 - **Telemetria sem conteúdo.** Números de cada pedido (modelo, tempo, tokens, custo). Nunca o que
   a pessoa disse, nem a resposta.
@@ -39,6 +43,8 @@ npm test
 | `src/router.js` · `src/lanes.js` | fila, retentativa, troca de modelo |
 | `src/free.js` | rodízio dos modelos grátis |
 | `src/limits.js` | limites por aparelho e teto de gasto |
+| `src/plans.js` | teste e Novelo+ |
+| `src/vaults.js` | cofre dos backups na nuvem |
 | `src/telemetry.js` | números por pedido e por hora |
 | `src/admin.js` · `admin/` | painel |
 | `src/config.js` | `.env`: o único lugar onde mora segredo |

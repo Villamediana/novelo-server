@@ -28,7 +28,7 @@ No `.env`:
 
 Na OpenRouter, crie a chave **com limite de crédito**: é um segundo teto, além do teto do painel.
 
-Conferir antes de subir (23 testes, ~7 s, sem internet e sem gastar nada):
+Conferir antes de subir (25 testes, ~8 s, sem internet e sem gastar nada):
 
 ```bash
 npm test
@@ -75,7 +75,8 @@ No painel, nesta ordem:
 2. **Modelos** → em *Ouvir*, *Ver* e *Pensar*: **+ Modelo**, escolher na lista (o preço vem junto), **Testar**.
    O primeiro da lista atende; os de baixo entram quando o de cima falha ou lota.
    - *Ouvir* precisa de um modelo que aceite áudio; *Ver*, imagem (a lista já vem filtrada).
-3. **Custos e limites** → teto por dia e por mês.
+3. **Custos e limites** → teto por dia e por mês; em **Planos**, o que um aparelho novo recebe
+   (hoje Novelo+ pra todos; depois, Teste de N dias).
 4. **Segurança** → deixar em **Observar**. Quando o seu celular aparecer em *Aparelhos* como
    **Verificado**, trocar pra **Exigir**.
 
@@ -90,12 +91,18 @@ Configuração e dados ficam em `data/novelo.db` e não são tocados pelo `git p
 
 ## 7. Cópia de segurança
 
-`data/novelo.db` (configuração, aparelhos e números de uso) e o `.env`. O banco não tem texto de
-ninguém nem chave de API.
+Três coisas: `data/novelo.db` (configuração, aparelhos, planos e números de uso), a pasta
+`data/backups/` (os backups na nuvem das pessoas, já cifrados pelo celular) e o `.env`. O banco não
+tem texto de ninguém nem chave de API.
 
 ```bash
 sqlite3 data/novelo.db ".backup 'novelo-$(date +%F).db'"
+rsync -a data/backups/ /outro/disco/novelo-backups/     # é o backup das pessoas: copie pra outro lugar
 ```
+
+A pasta `data/backups/` cresce com o uso (painel › Custos e limites › Backup na nuvem: espaço por
+pessoa e teto de tudo). Com menos de 512 MB livres no disco o servidor recusa envios novos e avisa
+em **Visão › Avisos**.
 
 ## 8. Capacidade
 

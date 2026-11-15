@@ -102,9 +102,9 @@ export class Phone {
     return { status: res.status, json };
   }
 
-  headers(path, body, { request = crypto.randomUUID(), time = Date.now(), not } = {}) {
+  headers(path, body, { request = crypto.randomUUID(), time = Date.now(), not, method = 'POST' } = {}) {
     const hash = crypto.createHash('sha256').update(body).digest('hex');
-    const text = `v1\nPOST\n${path}\n${time}\n${request}\n${hash}`;
+    const text = `v1\n${method}\n${path}\n${time}\n${request}\n${hash}`;
     return {
       'Content-Type': 'application/json',
       'X-Novelo-Device': this.id,
@@ -122,6 +122,18 @@ export class Phone {
     const raw = await res.text();
     return { status: res.status, raw, json: JSON.parse(raw), headers: res.headers };
   }
+}
+
+/** Any signed request of a phone: [body] a Buffer, a string or nothing. Returns { status, json, data }. */
+export async function signed(phone, method, path, body, headers = {}) {
+  const raw = body === undefined ? Buffer.alloc(0) : Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
+  const res = await fetch(phone.url + path, { method, headers: { ...phone.headers(path, raw, { method }), ...headers }, body: raw.length ? raw : undefined });
+  const data = Buffer.from(await res.arrayBuffer());
+  let json = null;
+  try {
+    json = JSON.parse(data.toString());
+  } catch { /* bytes */ }
+  return { status: res.status, json, data, headers: res.headers };
 }
 
 /** The panel, logged in. */

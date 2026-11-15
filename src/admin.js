@@ -45,8 +45,8 @@ const amount = (v, name) => {
 };
 
 export class Admin {
-  constructor({ db, config, settings, devices, limits, router, telemetry, secret, fetcher = fetch, now = Date.now }) {
-    Object.assign(this, { db, config, settings, devices, limits, router, telemetry, secret, fetcher, now });
+  constructor({ db, config, settings, devices, limits, router, telemetry, plans, vaults, secret, fetcher = fetch, now = Date.now }) {
+    Object.assign(this, { db, config, settings, devices, limits, router, telemetry, plans, vaults, secret, fetcher, now });
     this.trust = config.get('TRUST_PROXY', 'none');
     this.fails = new Map();
     this.modelLists = new Map();
@@ -162,10 +162,23 @@ export class Admin {
         verified: count('SELECT COUNT(*) n FROM devices WHERE attested = 1'),
         blocked: count("SELECT COUNT(*) n FROM devices WHERE status = 'blocked'"),
       },
+      plans: this.planCounts(),
+      backups: this.vaults.totals(),
       events: this.db.prepare('SELECT ts, kind, message FROM events ORDER BY id DESC LIMIT 12').all(),
       paused: this.settings.get('paused') ? 1 : 0,
       attestation: this.settings.get('attestation'),
       labels: Object.fromEntries([...this.router.jobs.values()].map((j) => [j.key, j.label])),
+    };
+  }
+
+  /** How many phones have each plan now (a trial past its days counts as ended). */
+  planCounts() {
+    const ends = this.now() - this.settings.get('trial_days') * 24 * 3600_000;
+    const n = (sql, ...a) => this.db.prepare(sql).get(...a).n;
+    return {
+      plus: n("SELECT COUNT(*) n FROM installs WHERE plan = 'plus'"),
+      trial: n("SELECT COUNT(*) n FROM installs WHERE plan = 'trial' AND trial_start > ?", ends),
+      ended: n("SELECT COUNT(*) n FROM installs WHERE plan = 'ended' OR (plan = 'trial' AND trial_start <= ?)", ends),
     };
   }
 
@@ -215,13 +228,14 @@ export class Admin {
     if (filter === 'unverified') where.push('d.attested = 0');
     this.limits.flush();
     const rows = this.db.prepare(`
-      SELECT d.id, d.created, d.last_seen, d.app_version, d.package, d.attested, d.attest_level, d.attest_note, d.boot, d.status, d.note,
+      SELECT d.id, d.created, d.last_seen, d.app_version, d.package, d.attested, d.attest_level, d.attest_note, d.boot, d.status, d.note, d.install,
         COALESCE(u.requests, 0) requests, COALESCE(u.cost, 0) cost
       FROM devices d
       LEFT JOIN (SELECT device, SUM(requests) requests, SUM(cost) cost FROM usage_day WHERE day = ? GROUP BY device) u ON u.device = d.id
       WHERE ${where.join(' AND ')}
       ORDER BY ${sort} LIMIT 51 OFFSET ?`).all(this.limits.day(), q, `${q}%`, `%${q}%`, offset);
-    return { devices: rows.slice(0, 50), more: rows.length > 50, offset };
+    const devices = rows.slice(0, 50).map(({ install, ...d }) => ({ ...d, plan: this.plans.of(install || `d:${d.id}`) }));
+    return { devices, more: rows.length > 50, offset };
   }
 
   // ── writing ────────────────────────────────────────────────────────────────
@@ -230,6 +244,7 @@ export class Admin {
     for (const [k, v] of Object.entries(body)) {
       need(k in DEFAULTS, `Ajuste desconhecido: ${k}`);
       if (k === 'attestation') need(['off', 'observe', 'require'].includes(v), 'Verificação: off, observe ou require.');
+      if (k === 'new_plan') need(['plus', 'trial'].includes(v), 'Novos aparelhos: plus ou trial.');
       if (k === 'timezone') {
         try {
           new Intl.DateTimeFormat('en', { timeZone: String(v) });
@@ -363,8 +378,15 @@ export class Admin {
   }
 
   saveDevice(id, b) {
-    need(this.db.prepare('SELECT 1 x FROM devices WHERE id = ?').get(id), 'Aparelho desconhecido.');
-    this.devices.setStatus(id, b.status === 'blocked' ? 'blocked' : 'ok', b.note ?? '');
+    const d = this.db.prepare('SELECT install, status, note FROM devices WHERE id = ?').get(id);
+    need(d, 'Aparelho desconhecido.');
+    if ('status' in b) this.devices.setStatus(id, b.status === 'blocked' ? 'blocked' : 'ok', b.note ?? '');
+    if ('plan' in b) {
+      need(['plus', 'trial', 'ended'].includes(b.plan), 'Plano: plus, trial ou ended.');
+      const install = d.install || `d:${id}`;
+      this.plans.ensure(install);
+      this.plans.set(install, b.plan);
+    }
     return { ok: true };
   }
 }

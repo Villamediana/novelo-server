@@ -218,3 +218,4 @@ dialog[open] { animation: rise .2s ease both; }
 }
 .search { width: 250px !important; }
 .actions .danger { margin-right: auto; }
+select.plan { width: auto; padding: 4px 8px; font-size: 14px; background: var(--surface); }
