@@ -140,6 +140,9 @@ export class Api {
       return sendJson(res, 404, { error: { code: 'not_found', message: 'Não existe.' } });
     } catch (e) {
       if (!(e instanceof HttpError)) console.error('api:', e);
+      // Refused before its body was read (unknown phone, over a limit): let the rest arrive and be
+      // dropped, so the phone gets the answer instead of a connection cut in the middle of sending.
+      if (!req.readableEnded && !req.destroyed) req.resume();
       return sendError(res, e);
     }
   }
@@ -226,16 +229,17 @@ export class Api {
       let run = this.runs.get(key);
       if (!run) {
         const not = String(req.headers['x-novelo-not'] ?? '').split(',').map((s) => s.trim()).filter((s) => /^(r\d{1,9}|f:[\w./:-]{1,120})$/.test(s)).slice(0, 8);
-        this.limits.admit(device, job);
+        // The day's limits are the phone's, not this key's: registering again doesn't start them over.
+        this.limits.admit(install, job);
         let body;
         try {
           body = prepare(job, parseJson(raw));
         } catch (e) {
-          this.limits.refund(device, job.key);
+          this.limits.refund(install, job.key);
           throw e;
         }
         for (const mark of not) this.telemetry.bad(job.key, this.router.bad(mark));
-        run = this.start(key, device, job, body, not, size);
+        run = this.start(key, device, install, job, body, not, size);
       }
       await this.respond(req, res, run, request);
     } finally {
@@ -244,7 +248,7 @@ export class Api {
     }
   }
 
-  start(key, device, job, body, not, bytesIn) {
+  start(key, device, install, job, body, not, bytesIn) {
     const t0 = this.now();
     const gone = { left: false, leave: null };
     const run = { done: false, at: 0, size: 0, listeners: 0, gone, result: null };
@@ -258,9 +262,9 @@ export class Api {
       run.result = r;
       run.size = r.text ? Buffer.byteLength(r.text) : 0;
       this.kept += run.size;
-      if (r.ok) this.limits.addCost(device, job.key, r.cost);
+      if (r.ok) this.limits.addCost(install, job.key, r.cost);
       // A request that got no answer doesn't use up the day.
-      else this.limits.refund(device, job.key);
+      else this.limits.refund(install, job.key);
       this.telemetry.record({
         ts: now, device, job: job.key, provider: r.provider, model: r.model, free: r.free, ok: r.ok, code: r.code || '',
         attempts: r.attempts, queueMs: Math.round(r.queueMs), upstreamMs: Math.round(r.upstreamMs), totalMs: now - t0,

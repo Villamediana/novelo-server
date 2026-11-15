@@ -18,7 +18,7 @@ export class Limits {
     this.settings = settings;
     this.now = now;
     this.minute = new Map(); // device|job → { start, n }
-    this.days = new Map(); // device → { day, cost, jobs: Map(job → { requests, cost, dirty }) }
+    this.days = new Map(); // phone (its install) → { day, cost, jobs: Map(job → { requests, cost, dirty }) }
     this.q = {
       load: db.prepare('SELECT job, requests, cost FROM usage_day WHERE device = ? AND day = ?'),
       save: db.prepare(`INSERT INTO usage_day(device,day,job,requests,cost) VALUES(?,?,?,?,?)

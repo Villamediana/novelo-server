@@ -231,7 +231,8 @@ export class Admin {
       SELECT d.id, d.created, d.last_seen, d.app_version, d.package, d.attested, d.attest_level, d.attest_note, d.boot, d.status, d.note, d.install,
         COALESCE(u.requests, 0) requests, COALESCE(u.cost, 0) cost
       FROM devices d
-      LEFT JOIN (SELECT device, SUM(requests) requests, SUM(cost) cost FROM usage_day WHERE day = ? GROUP BY device) u ON u.device = d.id
+      LEFT JOIN (SELECT device, SUM(requests) requests, SUM(cost) cost FROM usage_day WHERE day = ? GROUP BY device) u
+        ON u.device = CASE WHEN d.install = '' THEN 'd:' || d.id ELSE d.install END
       WHERE ${where.join(' AND ')}
       ORDER BY ${sort} LIMIT 51 OFFSET ?`).all(this.limits.day(), q, `${q}%`, `%${q}%`, offset);
     const devices = rows.slice(0, 50).map(({ install, ...d }) => ({ ...d, plan: this.plans.of(install || `d:${d.id}`) }));

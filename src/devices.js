@@ -148,6 +148,13 @@ export class Devices {
       install,
     );
     this.cache.delete(id);
+    // One key per phone: the app installed again (or registering again) leaves the old key behind.
+    if (install.startsWith('i:')) {
+      for (const old of this.db.prepare('SELECT id FROM devices WHERE install = ? AND id != ?').all(install, id)) {
+        this.db.prepare('DELETE FROM devices WHERE id = ?').run(old.id);
+        this.cache.delete(old.id);
+      }
+    }
     return { device: id, verified: attest.ok, plan: this.plans.of(install) };
   }
 

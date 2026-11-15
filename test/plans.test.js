@@ -51,6 +51,8 @@ test('the plan is the server\'s word: Novelo+ for whoever registers now, a trial
     assert.equal((await again.ask('think')).status, 402);
     // The first phone is still Novelo+.
     assert.equal((await a.ask('think')).status, 200);
+    // One key per phone: the key from before the reinstall is gone (and the day's count goes on, on the phone).
+    assert.equal((await b.ask('think')).json.error.code, 'unknown_device');
 
     // The panel makes it Novelo+ (what a confirmed purchase will do), and takes it back.
     const call = await panel(s.server);
@@ -58,12 +60,12 @@ test('the plan is the server\'s word: Novelo+ for whoever registers now, a trial
     assert.equal(listed.find((d) => d.id === again.id).plan.kind, 'ended');
     assert.equal((await call('PUT', `/api/devices/${again.id}`, { plan: 'plus' })).status, 200);
     assert.equal((await again.ask('think')).status, 200);
-    assert.equal((await b.ask('think')).status, 200, 'the same phone, the other key');
     assert.equal((await call('PUT', `/api/devices/${again.id}`, { plan: 'trial' })).status, 200);
     assert.equal((await signed(again, 'GET', '/v1/me')).json.plan.kind, 'trial');
     assert.equal((await call('PUT', `/api/devices/${again.id}`, { plan: 'gratis' })).status, 422);
     const ov = (await call('GET', '/api/overview')).json;
     assert.deepEqual(ov.plans, { plus: 1, trial: 1, ended: 0 });
+    assert.equal(ov.devices.total, 2);
   } finally {
     await s.close();
   }
@@ -118,7 +120,7 @@ test('the cloud backup: pieces once, versions kept, read back with the key only'
     assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 
     // Without Novelo+: nothing new goes up, but what is there can still be read and erased.
-    s.server.app.plans.set(other.id ? `i:${s.server.app.db.prepare('SELECT install FROM devices WHERE id = ?').get(other.id).install.slice(2)}` : '', 'ended');
+    s.server.app.plans.set(s.server.app.db.prepare('SELECT install FROM devices WHERE id = ?').get(other.id).install, 'ended');
     assert.equal((await signed(other, 'PUT', at(`/blobs/${b3.id}`), b3.data, key)).json.error.code, 'plan');
     assert.equal((await signed(other, 'GET', at(`/blobs/${b1.id}`), undefined, key)).status, 200);
 

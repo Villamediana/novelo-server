@@ -181,7 +181,7 @@ test('the ceiling of the day stops the paid models; a request without an answer 
     assert.equal(over.status, 503);
     assert.equal(over.json.error.code, 'budget');
     assert.equal(s.upstream.calls.length, 2);
-    assert.equal(s.server.app.limits.device(s.phone.id).jobs.get('think').requests, 2);
+    assert.equal(s.server.app.limits.device(`d:${s.phone.id}`).jobs.get('think').requests, 2);
     assert.match(s.server.app.db.prepare("SELECT message FROM events WHERE kind = 'teto'").get().message, /Teto de gasto do dia/);
     // A free model configured by hand still answers.
     s.server.route('think', 'algum/modelo:free');
@@ -240,7 +240,7 @@ test('each job takes only its kind of content, of a limited size', async () => {
     s.server.job('think', { max_body_kb: 16 });
     assert.equal((await s.phone.ask('think', { messages: [{ role: 'user', content: 'x'.repeat(20_000) }] })).status, 413);
     // None of the refused ones counted against the phone's day.
-    assert.equal(s.server.app.limits.device(s.phone.id).jobs.get('think')?.requests ?? 0, 0);
+    assert.equal(s.server.app.limits.device(`d:${s.phone.id}`).jobs.get('think')?.requests ?? 0, 0);
   } finally {
     await s.close();
   }

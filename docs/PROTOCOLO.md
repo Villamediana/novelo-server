@@ -28,7 +28,8 @@ Base: `https://<servidor>` · tudo JSON · UTF-8.
 → `{ "device": "<24 caracteres>", "verified": true, "plan": { "kind": "plus", "active": true, "backup": true } }`
 
 `install` é o que faz o teste não recomeçar numa reinstalação (o app manda um hash do
-`ANDROID_ID`). O plano fica preso a ele, não à chave.
+`ANDROID_ID`). O plano e os limites do dia ficam presos a ele, não à chave. Cada aparelho tem uma
+chave só: registrar de novo (chave nova) aposenta a anterior.
 
 `attestation` é a cadeia de `KeyStore.getCertificateChain(alias)`. O servidor confere: cadeia até a
 raiz do Google, revogação, chave no hardware (TEE/StrongBox), desafio, pacote e certificado que
