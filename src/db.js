@@ -119,30 +119,6 @@ CREATE TABLE IF NOT EXISTS installs(
   note TEXT NOT NULL DEFAULT ''
 ) WITHOUT ROWID;
 
--- The backup in the cloud: what is kept is already encrypted on the phone; here only sizes and dates.
-CREATE TABLE IF NOT EXISTS vaults(
-  id TEXT PRIMARY KEY,
-  auth BLOB NOT NULL,
-  created INTEGER NOT NULL,
-  updated INTEGER NOT NULL,
-  install TEXT NOT NULL,
-  bytes INTEGER NOT NULL DEFAULT 0
-) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS vault_blobs(
-  vault TEXT NOT NULL,
-  id TEXT NOT NULL,
-  size INTEGER NOT NULL,
-  at INTEGER NOT NULL,
-  PRIMARY KEY(vault, id)
-) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS vault_manifests(
-  vault TEXT NOT NULL,
-  id INTEGER NOT NULL,
-  size INTEGER NOT NULL,
-  refs TEXT NOT NULL,
-  PRIMARY KEY(vault, id)
-) WITHOUT ROWID;
-
 CREATE TABLE IF NOT EXISTS events(
   id INTEGER PRIMARY KEY,
   ts INTEGER NOT NULL,
@@ -173,11 +149,6 @@ export const DEFAULTS = {
   // the Novelo's intelligence ends for it and it goes on with its own: on the phone, or its API).
   new_plan: 'plus',
   trial_days: 7,
-  // The backup in the cloud (Novelo+): how much one person may keep, how many versions back, and
-  // how much everything may take on this disk (0 = no ceiling besides the disk itself).
-  backup_quota_mb: 5120,
-  backup_keep: 5,
-  backup_total_gb: 0,
   // Everything stops answering (maintenance, or a leak being looked at).
   paused: 0,
   // The last resort: free models of this provider, rotated.

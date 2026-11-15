@@ -40,17 +40,17 @@ export class Plans {
 
   /**
    * What [id] has now: { kind: 'plus' | 'trial' | 'ended', active (the Novelo's intelligence
-   * answers), backup (the cloud takes its backup), trial_ends (ms, for a trial) }.
+   * answers), trial_ends (ms, for a trial) }.
    */
   of(id) {
     const r = this.row(id);
-    if (!r) return { kind: 'ended', active: false, backup: false };
-    if (r.plan === 'plus') return { kind: 'plus', active: true, backup: true };
+    if (!r) return { kind: 'ended', active: false };
+    if (r.plan === 'plus') return { kind: 'plus', active: true };
     if (r.plan === 'trial') {
       const ends = r.trial_start + this.settings.get('trial_days') * DAY;
-      if (this.now() < ends) return { kind: 'trial', active: true, backup: false, trial_ends: ends };
+      if (this.now() < ends) return { kind: 'trial', active: true, trial_ends: ends };
     }
-    return { kind: 'ended', active: false, backup: false };
+    return { kind: 'ended', active: false };
   }
 
   /** Throws 402 when the Novelo's intelligence is over for this phone. */
