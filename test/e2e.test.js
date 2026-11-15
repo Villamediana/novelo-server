@@ -520,3 +520,30 @@ test('a Foundry model takes what OpenRouter says the same model takes, with its 
   assert.equal(auto.variable, true);
   assert.equal(auto.priceIn, 0);
 });
+
+test('a parameter the model doesn\'t take is renamed or left out as the API says, and remembered', async () => {
+  const { chat, lessonOf } = await import('../src/upstream.js');
+  assert.deepEqual(lessonOf("Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."), { param: 'max_tokens', instead: 'max_completion_tokens' });
+  assert.deepEqual(lessonOf("Unsupported value: 'temperature' does not support 0.2 with this model."), { param: 'temperature', instead: null });
+  assert.equal(lessonOf('outra coisa'), null);
+  const sent = [];
+  const fetcher = async (url, init) => {
+    const b = JSON.parse(init.body);
+    sent.push(b);
+    if ('max_tokens' in b) return new Response(JSON.stringify({ error: { message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead." } }), { status: 400 });
+    if ('temperature' in b) return new Response(JSON.stringify({ error: { message: "Unsupported value: 'temperature' does not support 0.2 with this model." } }), { status: 400 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+  };
+  const base = 'https://r.openai.azure.com/openai/v1';
+  const out = await chat({ baseUrl: base, key: 'k', body: { model: 'luna-aprende', max_tokens: 2000, temperature: 0.2, messages: [] }, fetcher });
+  assert.equal(out.text, 'ok');
+  assert.equal(sent.length, 3);
+  assert.equal(sent[2].max_completion_tokens, 2000);
+  assert.equal('max_tokens' in sent[2] || 'temperature' in sent[2], false);
+  // The next request to the same model goes right the first time.
+  await chat({ baseUrl: base, key: 'k', body: { model: 'luna-aprende', max_tokens: 500, temperature: 0.2, messages: [] }, fetcher });
+  assert.equal(sent.length, 4);
+  assert.equal(sent[3].max_completion_tokens, 500);
+  // A 400 about something else is not retried.
+  await assert.rejects(chat({ baseUrl: base, key: 'k', body: { model: 'outro', messages: [], max_tokens: 1 }, fetcher: async () => new Response('{"error":{"message":"bad request"}}', { status: 400 }) }));
+});

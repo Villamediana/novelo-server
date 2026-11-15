@@ -61,11 +61,54 @@ function authOf(baseUrl, key) {
   return isAzure(baseUrl) ? { 'api-key': key } : { Authorization: `Bearer ${key}` };
 }
 
+// What an API said it doesn't take, learned per API and model, so the next request goes right the first time:
+// a parameter under another name ("max_tokens" → "max_completion_tokens" on OpenAI's newer models, also on
+// Azure), or one it doesn't take at all (a "temperature" a reasoning model refuses).
+const learned = new Map();
+
+function adapt(body, rules) {
+  if (!rules) return body;
+  const out = { ...body };
+  for (const [from, to] of rules.rename) {
+    if (!(from in out)) continue;
+    if (!(to in out)) out[to] = out[from];
+    delete out[from];
+  }
+  for (const k of rules.drop) delete out[k];
+  return out;
+}
+
+/** "Unsupported parameter: 'max_tokens' … Use 'max_completion_tokens' instead." → what to change, or null. */
+export function lessonOf(message) {
+  const m = /unsupported (?:parameter|value)\W+'([a-z_]+)'/i.exec(String(message));
+  if (!m) return null;
+  return { param: m[1], instead: /use '([a-z_]+)' instead/i.exec(String(message))?.[1] ?? null };
+}
+
 /**
  * POST {base}/chat/completions. Returns { text, tokensIn, tokensOut, cost (USD, or null when the
- * API doesn't say), finish }.
+ * API doesn't say), finish }. A 400 naming a parameter the model doesn't take: changed as it says, once more.
  */
 export async function chat({ baseUrl, key, headers = {}, body, timeoutMs = 90_000, fetcher = fetch }) {
+  if (typeof body !== 'object' || !body) return chatOnce({ baseUrl, key, headers, body, timeoutMs, fetcher });
+  const where = `${baseUrl}|${body.model ?? ''}`;
+  let payload = adapt(body, learned.get(where));
+  for (let tries = 0; ; tries++) {
+    try {
+      return await chatOnce({ baseUrl, key, headers, body: payload, timeoutMs, fetcher });
+    } catch (e) {
+      const lesson = tries < 3 && e instanceof UpstreamError && e.status === 400 ? lessonOf(e.message) : null;
+      if (!lesson || !(lesson.param in payload)) throw e;
+      const rules = learned.get(where) ?? { rename: new Map(), drop: new Set() };
+      if (lesson.instead) rules.rename.set(lesson.param, lesson.instead);
+      else rules.drop.add(lesson.param);
+      learned.set(where, rules);
+      payload = adapt(payload, rules);
+    }
+  }
+}
+
+async function chatOnce({ baseUrl, key, headers = {}, body, timeoutMs = 90_000, fetcher = fetch }) {
   let res;
   let raw;
   try {
