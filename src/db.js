@@ -144,6 +144,8 @@ export const DEFAULTS = {
   store_fee_pct: 15,
   margin_pct: 30,
   usd_brl: 5.67,
+  // What paying for the models in dollars adds (%): IOF 3.5, OpenRouter's 5.5 on credits bought by card, the card's spread.
+  usd_fees_pct: 14,
   usd_auto: 1,
   usd_brl_at: 0,
   budget_floor_usd: 5,
@@ -206,6 +208,10 @@ export function openDb(dataDir, file = 'novelo.db') {
 function migrate(db) {
   const has = (table, column) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
   if (!has('devices', 'install')) db.exec("ALTER TABLE devices ADD COLUMN install TEXT NOT NULL DEFAULT ''");
+  // Prices besides in and out (US$): per million tokens the model had in its cache, and per minute of a recording
+  // billed by the minute (whisper). 0 = the input price for the cache; nothing by the minute.
+  if (!has('routes', 'price_cached')) db.exec('ALTER TABLE routes ADD COLUMN price_cached REAL NOT NULL DEFAULT 0');
+  if (!has('routes', 'price_minute')) db.exec('ALTER TABLE routes ADD COLUMN price_minute REAL NOT NULL DEFAULT 0');
   // Input tokens the model already had (its cache of the prompt's prefix): counted to see the cache work.
   if (!has('requests', 'tokens_cached')) db.exec('ALTER TABLE requests ADD COLUMN tokens_cached INTEGER NOT NULL DEFAULT 0');
   if (!has('agg_hour', 'tokens_cached')) db.exec('ALTER TABLE agg_hour ADD COLUMN tokens_cached INTEGER NOT NULL DEFAULT 0');

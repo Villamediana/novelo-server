@@ -7,16 +7,22 @@ import { Dispatcher, Lane } from './lanes.js';
 import { FreePool, REST } from './free.js';
 import { event } from './db.js';
 
+/** OpenRouter, by its address. */
+export function isOpenRouter(baseUrl) {
+  try {
+    return /(^|\.)openrouter\.ai$/i.test(new URL(baseUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Anthropic and Gemini models through OpenRouter keep a prompt's prefix only when asked (cache_control); the others
- * do it by themselves. The system message (the fixed instructions, always first) is marked, turned into parts.
+ * Anthropic models through OpenRouter keep a prompt's prefix only when asked (cache_control); the others do it by
+ * themselves. The system message (the fixed instructions, always first) is marked, turned into parts. Gemini is
+ * not: it caches by itself too (2.5 and newer), and a mark there costs the input again plus storage, every 5 min.
  */
 export function markCache(baseUrl, model, messages) {
-  let host = '';
-  try {
-    host = new URL(baseUrl).hostname;
-  } catch { /* no address, no mark */ }
-  if (!/(^|\.)openrouter\.ai$/i.test(host) || !/^(anthropic\/|google\/gemini)/i.test(String(model)) || !Array.isArray(messages)) return messages;
+  if (!isOpenRouter(baseUrl) || !/^anthropic\//i.test(String(model)) || !Array.isArray(messages)) return messages;
   const i = messages.findIndex((m) => m.role === 'system' || m.role === 'developer');
   if (i < 0) return messages;
   const m = messages[i];
@@ -25,6 +31,18 @@ export function markCache(baseUrl, model, messages) {
   if (last < 0 || parts.some((p) => p.cache_control)) return messages;
   parts[last] = { ...parts[last], cache_control: { type: 'ephemeral' } };
   return messages.map((x, k) => (k === i ? { ...m, content: parts } : x));
+}
+
+/**
+ * What a call cost, in dollars: what the API said, or else by the route's prices — the input the model had in its
+ * cache at the cached price (when the route has one), and a recording billed by the minute (whisper) by the minute.
+ */
+export function costOf(route, r) {
+  if (typeof r.cost === 'number') return r.cost;
+  const cached = Math.min(Math.max(0, r.tokensCached || 0), r.tokensIn || 0);
+  const cachedPrice = route.price_cached > 0 ? route.price_cached : route.price_in;
+  const tokens = ((r.tokensIn - cached) * route.price_in + cached * cachedPrice + r.tokensOut * route.price_out) / 1e6;
+  return tokens + ((r.seconds || 0) / 60) * (route.price_minute || 0);
 }
 
 /** The recording inside a chat request (the first input_audio part), or null. */
@@ -138,13 +156,16 @@ export class Router {
       const audio = audioOf(body);
       if (!audio) throw new UpstreamError('refused', 400, 'modelo de transcrição: o pedido não tem áudio');
       const r = await transcribe({ baseUrl: provider.base_url, key: this.keyOf(provider), headers: provider.headers, model: route.model, audio, timeoutMs, fetcher: this.fetcher });
-      return { ...r, cost: (r.tokensIn * route.price_in + r.tokensOut * route.price_out) / 1e6 };
+      return { ...r, cost: costOf(route, r) };
     }
-    const full = merge(merge({ ...body, model: route.model, stream: false }, provider.extra), route.extra);
+    // OpenRouter: every request of a job in one session, so it keeps sending them to the same provider, where the
+    // instructions (the same for every phone) are already in the cache. Without it each request, its own words
+    // after the instructions, looks like a new conversation and may land where nothing is cached.
+    const sticky = isOpenRouter(provider.base_url) ? { session_id: `novelo-${route.job}` } : {};
+    const full = merge(merge({ ...body, model: route.model, stream: false, ...sticky }, provider.extra), route.extra);
     full.messages = markCache(provider.base_url, route.model, full.messages);
     const r = await chat({ baseUrl: provider.base_url, key: this.keyOf(provider), headers: provider.headers, body: full, timeoutMs, fetcher: this.fetcher });
-    const cost = r.cost ?? (r.tokensIn * route.price_in + r.tokensOut * route.price_out) / 1e6;
-    return { ...r, cost };
+    return { ...r, cost: costOf(route, r) };
   }
 
   /**

@@ -7,7 +7,7 @@ import { HttpError, readBody, parseJson, sendJson, sendError, clientIp, scheme }
 import { Config, ROOT } from './config.js';
 import { DEFAULTS, event } from './db.js';
 import { chat, listModels, isAzure, isTranscriber, transcribe } from './upstream.js';
-import { merge } from './router.js';
+import { costOf, merge } from './router.js';
 
 const SESSION = 12 * 3600_000;
 const COOKIE = 'novelo_admin';
@@ -229,6 +229,9 @@ export class Admin {
       ready: this.router.ready(),
       // The ceilings worked out from the Novelo+ price (applied when budget_auto is on).
       budget: this.budget?.preview() ?? null,
+      // What a request of each job really cost lately (answered ones, the last 7 days): what fits in a phone's day.
+      typical: Object.fromEntries(this.db.prepare(`SELECT job, SUM(requests - errors) answered, SUM(cost) cost, SUM(tokens_in) tokens_in, SUM(tokens_out) tokens_out
+        FROM agg_hour WHERE hour >= ? GROUP BY job`).all(Math.floor(this.now() / 3600_000) - 7 * 24).map((r) => [r.job, r])),
     };
   }
 
@@ -345,7 +348,7 @@ export class Admin {
       need(k in DEFAULTS, `Ajuste desconhecido: ${k}`);
       if (k === 'attestation') need(['off', 'observe', 'require'].includes(v), 'Verificação: off, observe ou require.');
       if (k === 'new_plan') need(['plus', 'trial'].includes(v), 'Novos aparelhos: plus ou trial.');
-      if (k === 'store_fee_pct' || k === 'margin_pct') need(Number(v) >= 0 && Number(v) < 100, 'Porcentagem: de 0 a 99.');
+      if (k === 'store_fee_pct' || k === 'margin_pct' || k === 'usd_fees_pct') need(Number(v) >= 0 && Number(v) < 100, 'Porcentagem: de 0 a 99.');
       if (k === 'usd_brl') need(Number(v) > 0, 'Dólar: maior que zero.');
       if (k === 'timezone') {
         try {
@@ -452,12 +455,13 @@ export class Admin {
       amount(b.price_in ?? 0, 'Preço de entrada'), amount(b.price_out ?? 0, 'Preço de saída'),
       whole(b.timeout_s ?? 90, 'Tempo limite', 5, 600),
       jsonObject(b.extra, 'Extras'),
+      amount(b.price_cached ?? 0, 'Preço da entrada em cache'), amount(b.price_minute ?? 0, 'Preço por minuto'),
     ];
     if (id === null) {
       const pos = this.db.prepare('SELECT COALESCE(MAX(position), 0) + 1 p FROM routes WHERE job = ?').get(job).p;
-      this.db.prepare('INSERT INTO routes(job,position,provider_id,model,enabled,max_concurrency,rpm,price_in,price_out,timeout_s,extra) VALUES(?,?,?,?,?,?,?,?,?,?,?)').run(job, pos, ...v);
+      this.db.prepare('INSERT INTO routes(job,position,provider_id,model,enabled,max_concurrency,rpm,price_in,price_out,timeout_s,extra,price_cached,price_minute) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').run(job, pos, ...v);
     } else {
-      this.db.prepare('UPDATE routes SET provider_id=?, model=?, enabled=?, max_concurrency=?, rpm=?, price_in=?, price_out=?, timeout_s=?, extra=? WHERE id=?').run(...v, id);
+      this.db.prepare('UPDATE routes SET provider_id=?, model=?, enabled=?, max_concurrency=?, rpm=?, price_in=?, price_out=?, timeout_s=?, extra=?, price_cached=?, price_minute=? WHERE id=?').run(...v, id);
     }
     this.router.reload();
     return this.configuration();
@@ -496,7 +500,7 @@ export class Admin {
       const out = isTranscriber(r.model)
         ? await transcribe({ baseUrl: p.base_url, key: this.router.keyOf(p), headers: p.headers, model: r.model, audio: { data: silence().toString('base64'), format: 'wav' }, timeoutMs: 60_000, fetcher: this.fetcher })
         : await chat({ baseUrl: p.base_url, key: this.router.keyOf(p), headers: p.headers, body, timeoutMs: 60_000, fetcher: this.fetcher });
-      const cost = out.cost ?? (out.tokensIn * r.price_in + out.tokensOut * r.price_out) / 1e6;
+      const cost = costOf(r, out);
       return { ok: true, ms: this.now() - t0, text: out.text.trim().slice(0, 120), tokens_in: out.tokensIn, tokens_out: out.tokensOut, cost };
     } catch (e) {
       return { ok: false, ms: this.now() - t0, error: `${e.status ? `HTTP ${e.status}: ` : ''}${e.message}`.slice(0, 300) };

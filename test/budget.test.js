@@ -20,6 +20,11 @@ test('the ceilings come from what Novelo+ brings in, with the profit kept', () =
   assert.equal(many.budget_day_usd, 6.96);
   // Whatever the numbers, a phone's month never costs more than it brings in minus the profit.
   assert.ok(many.device_day_usd * 30 * S.usd_brl <= 19.9 * 0.85 * 0.7);
+  // Paying in dollars costs more than the rate (IOF, OpenRouter's fee, the card's spread): R$ 11,84 ÷ (5,6666 × 1,14) = US$ 1,8329.
+  const fees = ceilings({ ...S, usd_fees_pct: 14 }, 0);
+  assert.equal(fees.device_month_usd, 1.8329);
+  assert.equal(fees.device_day_usd, 0.0610);
+  assert.ok(fees.device_month_usd * S.usd_brl * 1.14 <= 19.9 * 0.85 * 0.7);
 });
 
 test('on "automático" the server writes the three ceilings, follows the subscribers, and ignores hand-set ones', async () => {
@@ -28,7 +33,7 @@ test('on "automático" the server writes the three ceilings, follows the subscri
   try {
     const call = await panel(server);
     // usd_auto off: no dollar fetched from outside in a test.
-    let cfg = (await call('PUT', '/api/settings', { usd_auto: 0, usd_brl: 5.6666, budget_auto: 1 })).json;
+    let cfg = (await call('PUT', '/api/settings', { usd_auto: 0, usd_brl: 5.6666, usd_fees_pct: 0, budget_auto: 1 })).json;
     assert.equal(cfg.settings.device_day_usd, 0.0696);
     assert.equal(cfg.settings.budget_month_usd, 5);
     assert.equal(cfg.settings.budget_day_usd, 0.16);
@@ -40,6 +45,10 @@ test('on "automático" the server writes the three ceilings, follows the subscri
     assert.equal(cfg.settings.device_day_usd, 0.0497);
     cfg = (await call('PUT', '/api/settings', { budget_day_usd: 99 })).json;
     assert.equal(cfg.settings.budget_day_usd, 0.16);
+    // A phone not seen in 30 days spends nothing: it doesn't count as a subscriber.
+    server.app.db.prepare('UPDATE devices SET last_seen = ?').run(Date.now() - 31 * 24 * 3600_000);
+    cfg = (await call('PUT', '/api/settings', { margin_pct: 50 })).json;
+    assert.equal(cfg.budget.plus, 0);
     assert.equal((await call('PUT', '/api/settings', { margin_pct: 100 })).status, 422);
     // By hand again: what is typed stays.
     cfg = (await call('PUT', '/api/settings', { budget_auto: 0, budget_day_usd: 3 })).json;

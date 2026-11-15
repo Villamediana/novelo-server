@@ -366,7 +366,8 @@ function routeRow(r, i, n) {
   const status = !r.enabled ? '<span class="pill">Desligado</span>'
     : live?.cooling_ms ? `<span class="pill warn" title="${esc(live.last_error)}">Em pausa ${Math.ceil(live.cooling_ms / 1000)} s</span>`
     : live?.in_flight ? `<span class="pill good live">${live.in_flight} agora</span>` : '';
-  const price = r.price_in || r.price_out ? ` · ${usd(r.price_in, 2)} → ${usd(r.price_out, 2)} por milhão` : '';
+  const price = (r.price_in || r.price_out ? ` · ${usd(r.price_in, 2)} → ${usd(r.price_out, 2)} por milhão` : '')
+    + (r.price_minute ? ` · ${usd(r.price_minute, 4)} por minuto` : '');
   return `<li class="route ${r.enabled ? '' : 'off'}"><span class="n">${i + 1}</span>
     <div class="what"><b>${esc(r.model)}</b><small>${esc(p?.name ?? '?')}${i ? ' · reserva' : ''}${price}</small></div>
     <div class="acts">${status}
@@ -421,7 +422,7 @@ async function routeDialog(job, route) {
     toast('Primeiro, conecte uma API em Inteligência');
     return go('inteligencia');
   }
-  const r = route ?? { job, provider_id: 0, model: '', enabled: 1, max_concurrency: 32, rpm: 0, price_in: 0, price_out: 0, timeout_s: 90, extra: '{}' };
+  const r = route ?? { job, provider_id: 0, model: '', enabled: 1, max_concurrency: 32, rpm: 0, price_in: 0, price_out: 0, price_cached: 0, price_minute: 0, timeout_s: 90, extra: '{}' };
   const j = c.jobs.find((x) => x.key === r.job);
   const label = j?.label ?? r.job;
   const needWord = r.job === 'hear' ? 'áudio' : r.job === 'see' ? 'imagens' : '';
@@ -436,7 +437,9 @@ async function routeDialog(job, route) {
       <input type="hidden" name="provider_id" value="${r.provider_id || ''}"><input type="hidden" name="model" value="${esc(r.model)}"></div>
     <label>Entrada <small>US$ por milhão de tokens</small><input type="number" name="price_in" min="0" step="any" value="${r.price_in}"></label>
     <label>Saída <small>US$ por milhão de tokens</small><input type="number" name="price_out" min="0" step="any" value="${r.price_out}"></label>
-    <small class="faint wide" data-price-note>${r.price_in || r.price_out ? 'É com esse preço que o teto faz a conta.' : ''}</small>
+    <label>Entrada em cache <small>US$ por milhão · 0 = o de entrada</small><input type="number" name="price_cached" min="0" step="any" value="${r.price_cached ?? 0}"></label>
+    ${r.job === 'hear' ? `<label>Por minuto de áudio <small>US$ · só quem cobra por minuto (whisper)</small><input type="number" name="price_minute" min="0" step="any" value="${r.price_minute ?? 0}"></label>` : ''}
+    <small class="faint wide" data-price-note>${r.price_in || r.price_out ? 'É com esse preço que o teto faz a conta (quando a API não diz o custo de cada pedido).' : ''}</small>
     <details class="limits wide"><summary>Avançado</summary><div class="form">
       <label>Ao mesmo tempo<input type="number" name="max_concurrency" min="1" value="${r.max_concurrency}"></label>
       <label>Pedidos por minuto <small>0 = sem limite</small><input type="number" name="rpm" min="0" value="${r.rpm}"></label>
@@ -549,10 +552,12 @@ async function routeDialog(job, route) {
     if (m?.priced) {
       form.price_in.value = +m.price_in.toFixed(6);
       form.price_out.value = +m.price_out.toFixed(6);
+      form.price_cached.value = +(m.price_cached ?? 0).toFixed(6);
       $('[data-price-note]', dialog).textContent = m.ref ? `Preço de referência da OpenRouter (${m.ref}); o da ${who?.name ?? 'API'} costuma ser o mesmo, confira se quiser.` : `Preço que a ${who?.name ?? 'API'} informa.`;
     } else {
       form.price_in.value = 0;
       form.price_out.value = 0;
+      form.price_cached.value = 0;
       $('[data-price-note]', dialog).textContent = `A ${who?.name ?? 'API'} não informa o preço: coloque o da página de preços dela (é com ele que o teto faz a conta).`;
     }
     showChosen();
@@ -730,8 +735,11 @@ function aparelhos() {
 }
 
 // ── Teto de gasto ──────────────────────────────────────────────────────────
-// A typical request of each sense, in tokens (in, out): what a phone's daily ceiling is measured in.
-const TYPICAL = { think: [3000, 1500], see: [2500, 600], hear: [1000, 100] };
+// A typical request of each sense, in tokens (in, out), while there is no real one to go by: what a phone's daily
+// ceiling is measured in. Thinking: ~3 thousand of instructions plus what she has (tasks, the day, the last things).
+const TYPICAL = { think: [6000, 700], see: [2500, 600], hear: [1000, 100] };
+/** Answered requests of a job in the last days enough to go by their real average cost. */
+const REAL_FROM = 20;
 const brl = (v) => `R$ ${(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** The three ceilings as they are now, how they were worked out, and what fits in a phone's day. */
@@ -743,17 +751,21 @@ function budgetResult(c) {
   const fits = c.jobs.filter((j) => j.enabled).map((j) => {
     const r = c.routes.find((x) => x.job === j.key && x.enabled);
     if (!r) return '';
+    // What they really cost lately, when there are enough; else an estimate by the first model's price.
+    const seen = c.typical?.[j.key];
+    const real = seen && seen.answered >= REAL_FROM;
     const [tin, tout] = TYPICAL[j.key] ?? [2000, 500];
-    const each = (tin * r.price_in + tout * r.price_out) / 1e6;
-    const what = !each ? '<span class="faint">sem preço no modelo</span>'
-      : s.device_day_usd ? `≈ <b>${num(Math.floor(s.device_day_usd / each))}</b> por dia <span class="faint">(${usd(each, 5)} cada)</span>` : `${usd(each, 5)} cada`;
+    const each = real ? seen.cost / seen.answered : (tin * r.price_in + tout * r.price_out) / 1e6;
+    const how = real ? `média de ${num(seen.answered)} nos últimos 7 dias` : 'estimativa';
+    const what = !each ? `<span class="faint">${real ? 'de graça nos últimos 7 dias' : 'sem preço no modelo'}</span>`
+      : s.device_day_usd ? `≈ <b>${num(Math.floor(s.device_day_usd / each))}</b> por dia <span class="faint">(${usd(each, 5)} cada, ${how})</span>` : `${usd(each, 5)} cada <span class="faint">(${how})</span>`;
     return `<li>${icon(j.key)}<span><b>${esc(j.label)}</b> · ${esc(shortModel(r.model))}</span><span>${what}</span></li>`;
   }).join('');
   return `<div class="budget-grid">
       ${cell('Por aparelho, por dia', s.device_day_usd, auto ? `${usd(b.device_month_usd, 2)} por mês` : '')}
       ${cell('Total por mês', s.budget_month_usd, auto ? (b.budget_month_usd <= s.budget_floor_usd ? `o mínimo · ${num(b.plus)} no Novelo+` : `${num(b.plus)} no Novelo+`) : '')}
       ${cell('Total por dia', s.budget_day_usd, '')}</div>
-    ${auto ? `<p class="faint small">${brl(s.plus_price_brl)} − ${num(s.store_fee_pct)}% da loja = ${brl(b.net_brl)} · − ${num(s.margin_pct)}% de lucro = <b>${brl(b.ai_brl)}</b> pra inteligência, por assinante no mês.</p>` : ''}
+    ${auto ? `<p class="faint small">${brl(s.plus_price_brl)} − ${num(s.store_fee_pct)}% da loja = ${brl(b.net_brl)} · − ${num(s.margin_pct)}% de lucro = <b>${brl(b.ai_brl)}</b> pra inteligência, por assinante no mês, com o dólar a ${brl(s.usd_brl * (1 + (s.usd_fees_pct || 0) / 100))} (${num(s.usd_fees_pct || 0)}% de taxas). Assinantes: os do Novelo+ vistos nos últimos 30 dias.</p>` : ''}
     ${fits ? `<h3 class="label small-label">Cabe num aparelho, por dia</h3><ul class="fits">${fits}</ul>` : ''}`;
 }
 
@@ -768,6 +780,7 @@ function budgetCard(c) {
       <label>Parte da loja (%) <small>Google Play: 15</small><input type="number" name="store_fee_pct" min="0" max="99" step="any" value="${s.store_fee_pct}"></label>
       <label>Lucro (%)<input type="number" name="margin_pct" min="0" max="99" step="any" value="${s.margin_pct}"></label>
       <label>Dólar (R$) <small>${s.usd_auto ? `do dia${s.usd_brl_at ? `, ${when(s.usd_brl_at)}` : ''}` : 'fixo · <button type="button" class="link" data-act="usd-auto">usar o do dia</button>'}</small><input type="number" name="usd_brl" min="0" step="any" value="${s.usd_brl}"></label>
+      <label>Pagar em dólar (%) <small>IOF 3,5 · OpenRouter 5,5 · spread do cartão</small><input type="number" name="usd_fees_pct" min="0" max="99" step="any" value="${s.usd_fees_pct}"></label>
       <label>Mínimo por mês (US$) <small>enquanto há poucos assinantes</small><input type="number" name="budget_floor_usd" min="0" step="any" value="${s.budget_floor_usd}"></label>
     </div>` : `<div class="form">
       <label>Total por mês (US$) <small>0 = sem teto</small><input type="number" name="budget_month_usd" min="0" step="any" value="${s.budget_month_usd}"></label>

@@ -13,7 +13,13 @@ a lógica do Novelo continua no app.
   é um aparelho real rodando o app assinado, e todo pedido vem assinado. Sem assinatura, não custa nada.
 - **Plano no servidor.** Teste de N dias e Novelo+ são decididos aqui; o celular só pergunta.
   Terminado o teste, o app segue com a inteligência própria (no celular ou API).
-- **Custo sob controle.** Teto por dia e por mês, teto e limites por aparelho, bloqueio.
+- **Custo sob controle.** Teto por dia e por mês, teto e limites por aparelho, bloqueio. No automático, o teto sai
+  do preço do Novelo+ com a parte da loja, o lucro e o que custa pagar em dólar (IOF, taxa da OpenRouter, spread)
+  descontados, e conta só os assinantes vistos nos últimos 30 dias. Sem o custo dito pela API, a conta usa os preços
+  do modelo: o que veio do cache pelo preço de cache, e quem cobra por minuto (whisper) por minuto.
+- **Cache que se paga.** Pela OpenRouter, cada pedido (ouvir, ver, pensar) vai numa sessão só, que fica no mesmo
+  provedor onde as instruções já estão em cache; só a Anthropic recebe a marca de cache (o Gemini guarda sozinho, e
+  marcar ali custaria a entrada de novo mais o armazenamento).
 - **Telemetria sem conteúdo.** Números de cada pedido (modelo, tempo, tokens, custo). Nunca o que
   a pessoa disse, nem a resposta.
 - **Painel** em outra porta, só local: modelos por pedido, chaves, custos, aparelhos, segurança.

@@ -1,11 +1,15 @@
 // The ceilings worked out from what Novelo+ brings in, when the panel has them on "automático": the price,
 // minus the store's cut, minus the profit kept, is what one phone may spend on intelligence in a month (in
-// dollars, at the day's rate). A phone's day is a thirtieth of that; all phones together, as many as have
-// Novelo+, never under a floor (so it works before the first subscriber). They are written into the same
+// dollars, at the day's rate plus what paying in dollars costs on top: IOF, the card's spread, OpenRouter's fee
+// on credits). A phone's day is a thirtieth of that; all phones together, as many as have Novelo+ and were seen
+// lately, never under a floor (so it works before the first subscriber). They are written into the same
 // settings the limits already read, so nothing else changes.
 
 const RATE_URL = 'https://economia.awesomeapi.com.br/json/last/USD-BRL';
 const RATE_EVERY = 12 * 3600_000;
+
+/** A phone counts among the subscribers while it was seen this recently (one that went quiet spends nothing). */
+const ACTIVE = 30 * 24 * 3600_000;
 
 /** Rounded down: a ceiling never above what pays. */
 const down = (v, digits) => Math.floor(v * 10 ** digits + 1e-9) / 10 ** digits;
@@ -14,7 +18,9 @@ const down = (v, digits) => Math.floor(v * 10 ** digits + 1e-9) / 10 ** digits;
 export function ceilings(s, plus) {
   const net = s.plus_price_brl * (1 - s.store_fee_pct / 100);
   const forAi = net * (1 - s.margin_pct / 100);
-  const deviceMonth = s.usd_brl > 0 ? forAi / s.usd_brl : 0;
+  // What one dollar of intelligence costs in reais: the rate, and what paying in dollars adds to it.
+  const dollar = s.usd_brl * (1 + (s.usd_fees_pct || 0) / 100);
+  const deviceMonth = dollar > 0 ? forAi / dollar : 0;
   const month = Math.max(s.budget_floor_usd, deviceMonth * plus);
   return {
     plus,
@@ -32,8 +38,11 @@ export class AutoBudget {
     Object.assign(this, { db, settings, fetcher, now });
   }
 
+  /** Phones on Novelo+ seen in the last 30 days, not blocked: the ones that may spend this month. */
   plus() {
-    return this.db.prepare("SELECT COUNT(*) n FROM installs WHERE plan = 'plus'").get().n;
+    return this.db.prepare(`SELECT COUNT(DISTINCT i.id) n FROM installs i
+      JOIN devices d ON i.id = CASE WHEN d.install != '' THEN d.install ELSE 'd:' || d.id END
+      WHERE i.plan = 'plus' AND d.last_seen >= ? AND d.status != 'blocked'`).get(this.now() - ACTIVE).n;
   }
 
   /** What the ceilings would be now (shown in the panel even when they are set by hand). */
