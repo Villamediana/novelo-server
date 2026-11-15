@@ -40,7 +40,11 @@ export class Limits {
     this.spent.day = day;
     this.spent.month = month;
     this.spent.dayUsd = this.db.prepare('SELECT COALESCE(SUM(cost),0) c FROM usage_day WHERE day = ?').get(day).c;
-    this.spent.monthUsd = this.db.prepare('SELECT COALESCE(SUM(cost),0) c FROM usage_day WHERE day >= ? AND day <= ?').get(`${month}-00`, `${month}-99`).c;
+    // The month comes from the hourly totals (they stay; what is counted per phone is let go after a while).
+    let first = Math.floor(this.now() / 3600_000);
+    const zone = this.settings.get('timezone');
+    for (let i = 0; i < 32 * 24 && dayOf((first - 1) * 3600_000, zone).slice(0, 7) === month; i++) first--;
+    this.spent.monthUsd = this.db.prepare('SELECT COALESCE(SUM(cost),0) c FROM agg_hour WHERE hour >= ?').get(first).c;
   }
 
   roll() {
@@ -109,6 +113,12 @@ export class Limits {
     j.requests++;
     j.dirty = true;
     d.jobs.set(job.key, j);
+  }
+
+  /** What is counted of a phone today, let go (its record was erased). */
+  forget(install) {
+    this.days.delete(install);
+    for (const k of this.minute.keys()) if (k.startsWith(`${install}|`)) this.minute.delete(k);
   }
 
   /** A request that was counted but got no answer goes back to the day. */

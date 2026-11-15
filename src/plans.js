@@ -60,6 +60,12 @@ export class Plans {
     return plan;
   }
 
+  /** A phone's plan record, gone (it starts again as a new phone would). */
+  remove(id) {
+    this.db.prepare('DELETE FROM installs WHERE id = ?').run(id);
+    this.cache.delete(id);
+  }
+
   /** The panel: 'plus', 'trial' (a new trial, from now) or 'ended'. */
   set(id, kind) {
     if (!KINDS.has(kind)) throw new Error('plano inválido');

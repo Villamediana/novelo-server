@@ -111,4 +111,11 @@ pedidos abertos ao mesmo tempo; o gargalo é o limite das APIs, e é disso que a
 Ajustes no `.env`, se precisar: `MAX_OPEN` (pedidos abertos, padrão 20000) e `MAX_HELD_MB`
 (memória pros pedidos na fila, padrão 1024).
 
+## 9. Pedido de apagar dados
+
+Quando alguém pedir pra apagar o que o servidor guarda dela: a pessoa informa o **código do
+aparelho** (no app, Ajustes, embaixo da versão), você busca por ele em **Aparelhos** e usa
+**Apagar**. Somem a chave, o plano e os números de uso. O backup na nuvem só ela apaga, no app
+(desligando o backup), porque só ela tem o segredo.
+
 Se algo não responder: `journalctl --user -u novelo-server -f` e a aba **Visão › Avisos**.

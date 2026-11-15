@@ -110,9 +110,20 @@ export class Telemetry {
     };
   }
 
+  /** What is tied to a phone (each request, each day's count) goes after [keepDays]; the hourly totals, tied to none, stay. */
   prune(keepDays) {
-    if (keepDays > 0) this.db.prepare('DELETE FROM requests WHERE ts < ?').run(this.now() - keepDays * 24 * HOUR);
+    if (keepDays > 0) {
+      const before = this.now() - keepDays * 24 * HOUR;
+      this.db.prepare('DELETE FROM requests WHERE ts < ?').run(before);
+      this.db.prepare('DELETE FROM usage_day WHERE day < ?').run(new Date(before - 24 * HOUR).toISOString().slice(0, 10));
+    }
     this.db.prepare('DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT 500)').run();
-    this.db.prepare('DELETE FROM usage_day WHERE day < ?').run(new Date(this.now() - 400 * 24 * HOUR).toISOString().slice(0, 10));
+  }
+
+  /** Everything counted of one phone ([device]: its key's id; [install]: the phone), gone. */
+  forget(device, install) {
+    this.flush();
+    this.db.prepare('DELETE FROM requests WHERE device = ?').run(device);
+    this.db.prepare('DELETE FROM usage_day WHERE device = ?').run(install);
   }
 }

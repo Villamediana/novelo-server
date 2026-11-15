@@ -433,7 +433,8 @@ function aparelhos() {
         <td class="r">${num(x.requests)}</td><td class="r">${usd(x.cost)}</td>
         <td class="r">${x.status === 'blocked'
           ? `<button class="btn quiet" data-act="device" data-id="${x.id}" data-status="ok">Liberar</button>`
-          : `<button class="btn quiet danger" data-act="device" data-id="${x.id}" data-status="blocked">Bloquear</button>`}</td></tr>`).join('')}
+          : `<button class="btn quiet danger" data-act="device" data-id="${x.id}" data-status="blocked">Bloquear</button>`}
+          <button class="btn quiet" data-act="device-erase" data-id="${x.id}" title="Apagar o registro deste aparelho (pedido da pessoa)">Apagar</button></td></tr>`).join('')}
       </tbody></table>` : '<p class="empty">Nenhum aparelho.</p>'}</div>
     <div class="actions">${q.offset ? '<button class="btn" data-act="devices-page" data-d="-50">Anteriores</button>' : ''}${d?.more ? '<button class="btn" data-act="devices-page" data-d="50">Próximos</button>' : ''}</div>`;
 }
@@ -501,6 +502,10 @@ document.addEventListener('click', async (e) => {
       await attempt(() => api('PUT', `/devices/${d.id}`, { status: d.status, note }), d.status === 'blocked' ? 'Bloqueado' : 'Liberado');
       return loadDevices();
     }
+    case 'device-erase':
+      if (!confirm(`Apagar tudo o que o servidor guarda do aparelho ${d.id.slice(0, 10)}?\n\nA chave, o plano e os números de uso somem. Se o app ainda estiver instalado, ele entra de novo como aparelho novo. O backup na nuvem só a própria pessoa apaga, no app.`)) return;
+      await attempt(() => api('DELETE', `/devices/${d.id}`), 'Apagado');
+      return loadDevices();
     case 'devices-page':
       state.deviceQuery.offset = Math.max(0, state.deviceQuery.offset + Number(d.d));
       return loadDevices();

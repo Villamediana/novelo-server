@@ -183,6 +183,14 @@ test('the ceiling of the day stops the paid models; a request without an answer 
     assert.equal(s.upstream.calls.length, 2);
     assert.equal(s.server.app.limits.device(`d:${s.phone.id}`).jobs.get('think').requests, 2);
     assert.match(s.server.app.db.prepare("SELECT message FROM events WHERE kind = 'teto'").get().message, /Teto de gasto do dia/);
+    // What was spent this month is read back from the hourly totals (what is counted per phone doesn't stay).
+    s.server.app.flush();
+    s.server.app.telemetry.prune(30);
+    s.server.app.db.prepare('DELETE FROM usage_day').run();
+    s.server.app.limits.days.clear();
+    s.server.app.limits.loadSpent();
+    assert.ok(Math.abs(s.server.app.limits.spent.monthUsd - 1.2) < 1e-9);
+    s.server.app.limits.spent.dayUsd = 1.2;
     // A free model configured by hand still answers.
     s.server.route('think', 'algum/modelo:free');
     assert.equal((await s.phone.ask('think')).status, 200);

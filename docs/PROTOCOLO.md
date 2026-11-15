@@ -181,3 +181,8 @@ De cada pedido: hora, aparelho (código), pedido, modelo, se respondeu, tentativ
 custo e tamanhos. **Nunca** o texto, a foto, o som ou a resposta. Do aparelho: a chave pública,
 versão do app, resultado da verificação, primeira e última vez, o plano e o identificador do
 aparelho (um hash). Do backup: os arquivos cifrados, tamanhos e datas. O endereço IP não é gravado.
+
+Prazos: o que é ligado a um aparelho (cada pedido, a contagem de cada dia) some depois dos dias
+configurados no painel (padrão 30); ficam só totais por hora, sem aparelho. O registro de um
+aparelho é apagado no painel (Aparelhos › Apagar) quando a pessoa pede; o app mostra o código do
+aparelho em Ajustes, embaixo da versão, pra ela informar.
