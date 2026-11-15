@@ -133,6 +133,7 @@ export class Admin {
     if ((x = m(/^\/api\/routes\/(\d+)\/test$/)) && method === 'POST') return this.testRoute(Number(x[1]));
     if (method === 'GET' && p === '/api/devices') return this.listDevices(query);
     if ((x = m(/^\/api\/devices\/([A-Za-z0-9_-]{24})$/)) && method === 'PUT') return this.saveDevice(x[1], body);
+    if (x && method === 'DELETE') return this.deleteDevice(x[1]);
     throw new HttpError(404, 'not_found', 'Não existe.');
   }
 
@@ -260,6 +261,7 @@ export class Admin {
       }
     }
     if ('paused' in body) event(this.db, 'servidor', body.paused ? 'Pausado pelo painel.' : 'Retomado pelo painel.');
+    this.telemetry.flush();
     this.limits.loadSpent();
     this.router.reload();
     return this.configuration();
@@ -376,6 +378,24 @@ export class Admin {
     } catch (e) {
       return { ok: false, ms: this.now() - t0, error: `${e.status ? `HTTP ${e.status}: ` : ''}${e.message}`.slice(0, 300) };
     }
+  }
+
+  /**
+   * Everything kept of one phone, erased (the person asked: the right to have one's data deleted):
+   * its key, its plan record, what was counted of it. Its cloud backup isn't touched — only who
+   * has its secret can erase that, in the app. The app, if still installed, registers again as new.
+   */
+  deleteDevice(id) {
+    const d = this.db.prepare('SELECT install FROM devices WHERE id = ?').get(id);
+    need(d, 'Aparelho desconhecido.');
+    const install = d.install || `d:${id}`;
+    this.limits.flush();
+    this.telemetry.forget(id, install);
+    this.limits.forget(install);
+    this.devices.remove(id);
+    this.plans.remove(install);
+    event(this.db, 'aparelho', `Registro do aparelho ${id.slice(0, 10)} apagado pelo painel.`);
+    return { ok: true };
   }
 
   saveDevice(id, b) {

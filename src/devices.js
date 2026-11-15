@@ -210,6 +210,12 @@ export class Devices {
     return { id, request, install: d.install };
   }
 
+  /** A phone's record, gone (it asked for it): the key, and with it the right to ask anything until it registers again. */
+  remove(id) {
+    this.db.prepare('DELETE FROM devices WHERE id = ?').run(id);
+    this.cache.delete(id);
+  }
+
   setStatus(id, status, note = '') {
     if (!['ok', 'blocked'].includes(status)) throw new Error('estado inválido');
     this.q.status.run(status, String(note).slice(0, 200), id);

@@ -63,6 +63,17 @@ test('the plan is the server\'s word: Novelo+ for whoever registers now, a trial
     assert.equal((await call('PUT', `/api/devices/${again.id}`, { plan: 'trial' })).status, 200);
     assert.equal((await signed(again, 'GET', '/v1/me')).json.plan.kind, 'trial');
     assert.equal((await call('PUT', `/api/devices/${again.id}`, { plan: 'gratis' })).status, 422);
+    // Erased at the person's request: nothing of that phone is left; the app, still installed, comes in again as new.
+    s.server.app.flush();
+    const phoneOf = s.server.app.db.prepare('SELECT install FROM devices WHERE id = ?').get(again.id).install;
+    assert.ok(s.server.app.db.prepare('SELECT COUNT(*) n FROM requests WHERE device = ?').get(again.id).n > 0);
+    assert.equal((await call('DELETE', `/api/devices/${again.id}`)).status, 200);
+    for (const [table, col, val] of [['devices', 'id', again.id], ['requests', 'device', again.id], ['installs', 'id', phoneOf], ['usage_day', 'device', phoneOf]]) {
+      assert.equal(s.server.app.db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE ${col} = ?`).get(val).n, 0, table);
+    }
+    assert.equal((await again.ask('think')).json.error.code, 'unknown_device');
+    assert.equal((await again.register({ install: id })).json.plan.kind, 'trial');
+    assert.equal((await call('DELETE', `/api/devices/${'x'.repeat(24)}`)).status, 422);
     const ov = (await call('GET', '/api/overview')).json;
     assert.deepEqual(ov.plans, { plus: 1, trial: 1, ended: 0 });
     assert.equal(ov.devices.total, 2);
