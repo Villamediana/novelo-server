@@ -574,19 +574,85 @@ test('see takes nine photos in one request (~1.5 MB), each after its "n:", and t
   }
 });
 
-test('Anthropic and Gemini through OpenRouter get the system message marked for the cache; the rest as is', async () => {
+test('Anthropic through OpenRouter gets the system message marked for the cache; the rest as is', async () => {
   const { markCache } = await import('../src/router.js');
   const msgs = [{ role: 'system', content: 'instruções fixas' }, { role: 'user', content: 'oi' }];
   const marked = markCache('https://openrouter.ai/api/v1', 'anthropic/claude-sonnet-5-5', msgs);
   assert.deepEqual(marked[0].content, [{ type: 'text', text: 'instruções fixas', cache_control: { type: 'ephemeral' } }]);
   assert.equal(marked[1], msgs[1]);
   assert.equal(msgs[0].content, 'instruções fixas');
-  assert.equal(markCache('https://openrouter.ai/api/v1', 'google/gemini-3-flash', msgs)[0].content[0].cache_control.type, 'ephemeral');
-  // Others cache the prefix by themselves; elsewhere, not OpenRouter's way.
+  // Gemini caches by itself (a mark would cost the input again plus storage); others too; elsewhere, not OpenRouter's way.
+  assert.equal(markCache('https://openrouter.ai/api/v1', 'google/gemini-3-flash', msgs), msgs);
   assert.equal(markCache('https://openrouter.ai/api/v1', 'openai/gpt-6-luna', msgs), msgs);
   assert.equal(markCache('https://openrouter.ai/api/v1', 'google/gemma-4', msgs), msgs);
   assert.equal(markCache('https://r.openai.azure.com/openai/v1', 'anthropic/x', msgs), msgs);
   // Already marked by the app: left alone.
   const own = [{ role: 'system', content: [{ type: 'text', text: 'x', cache_control: { type: 'ephemeral' } }] }];
   assert.equal(markCache('https://openrouter.ai/api/v1', 'anthropic/x', own), own);
+});
+
+test('the cost by the route\'s prices: what was cached at the cached price, a recording billed by the minute by the minute', async () => {
+  const { costOf } = await import('../src/router.js');
+  const route = { price_in: 2, price_out: 10, price_cached: 0.2, price_minute: 0 };
+  // What the API says wins.
+  assert.equal(costOf(route, { tokensIn: 1000, tokensOut: 100, tokensCached: 800, cost: 0.5 }), 0.5);
+  // 200 new at 2, 800 cached at 0.2, 100 out at 10 (per million).
+  assert.equal(costOf(route, { tokensIn: 1000, tokensOut: 100, tokensCached: 800, cost: null }), (200 * 2 + 800 * 0.2 + 100 * 10) / 1e6);
+  // No cached price: the input's (as before).
+  assert.equal(costOf({ ...route, price_cached: 0 }, { tokensIn: 1000, tokensOut: 100, tokensCached: 800, cost: null }), (1000 * 2 + 100 * 10) / 1e6);
+  // Whisper: 90 s at US$ 0.006 a minute.
+  assert.ok(Math.abs(costOf({ price_in: 0, price_out: 0, price_minute: 0.006 }, { tokensIn: 0, tokensOut: 0, seconds: 90, cost: null }) - 0.009) < 1e-12);
+});
+
+test('a transcription billed by the minute says how long it heard: by the API, or by the recording', async () => {
+  const { transcribe, wavSeconds } = await import('../src/upstream.js');
+  const wav = (seconds) => {
+    const n = 16000 * seconds;
+    const b = Buffer.alloc(44 + n * 2);
+    b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8); b.write('fmt ', 12); b.writeUInt32LE(16, 16);
+    b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(16000, 24); b.writeUInt32LE(32000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+    b.write('data', 36); b.writeUInt32LE(n * 2, 40);
+    return { data: b.toString('base64'), format: 'wav' };
+  };
+  assert.equal(wavSeconds(wav(3)), 3);
+  assert.equal(wavSeconds({ data: 'abc', format: 'wav' }), 0);
+  assert.equal(wavSeconds({ data: wav(3).data, format: 'mp3' }), 0);
+  let answer;
+  const fetcher = async () => new Response(JSON.stringify(answer), { status: 200 });
+  const ask = () => transcribe({ baseUrl: 'https://api.openai.com/v1', key: 'k', model: 'whisper-1', audio: wav(2), fetcher });
+  answer = { text: 'oi', usage: { type: 'duration', seconds: 7 } };
+  assert.equal((await ask()).seconds, 7);
+  answer = { text: 'oi' };
+  assert.equal((await ask()).seconds, 2);
+  // Billed by tokens: no minutes.
+  answer = { text: 'oi', usage: { input_tokens: 50, output_tokens: 3 } };
+  assert.equal((await ask()).seconds, 0);
+});
+
+test('through OpenRouter each job is one session (the same provider keeps the instructions cached), and the cost counts the cache', async () => {
+  const server = await startServer();
+  try {
+    server.app.db.prepare("UPDATE providers SET base_url = 'https://openrouter.ai/api/v1' WHERE id = 1").run();
+    const sent = [];
+    server.app.router.fetcher = async (url, init) => {
+      sent.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' } }], usage: { prompt_tokens: 1000, completion_tokens: 100, prompt_tokens_details: { cached_tokens: 800 } } }), { status: 200 });
+    };
+    const id = server.route('think', 'anthropic/claude-haiku-5-5', { price_in: 1, price_out: 5 });
+    const phone = new Phone(server.url);
+    await phone.register();
+    const body = { messages: [{ role: 'system', content: 'instruções fixas' }, { role: 'user', content: 'oi' }] };
+    assert.equal((await phone.ask('think', body)).status, 200);
+    assert.equal(sent[0].session_id, 'novelo-think');
+    assert.equal(sent[0].messages[0].content[0].cache_control.type, 'ephemeral');
+    // No cached price on the route: all of the input at the input's.
+    server.app.db.prepare('UPDATE routes SET price_cached = 0.1 WHERE id = ?').run(id);
+    server.app.router.reload();
+    assert.equal((await phone.ask('think', body)).status, 200);
+    server.app.telemetry.flush();
+    const costs = server.app.db.prepare("SELECT cost FROM requests WHERE job = 'think' ORDER BY id").all().map((r) => r.cost);
+    assert.deepEqual(costs, [(1000 * 1 + 100 * 5) / 1e6, (200 * 1 + 800 * 0.1 + 100 * 5) / 1e6]);
+  } finally {
+    await server.close();
+  }
 });

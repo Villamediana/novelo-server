@@ -235,7 +235,28 @@ export async function transcribe({ baseUrl, key, headers = {}, model, audio, tim
     throw new UpstreamError(kindOf(res.status), res.status, (err?.message ?? `HTTP ${res.status}`).slice(0, 300), retryAfter(res.headers));
   }
   const u = json?.usage ?? {};
-  return { text: String(json?.text ?? '').trim() || '-', finish: 'stop', tokensIn: Number(u.input_tokens) || 0, tokensOut: Number(u.output_tokens) || 0, tokensCached: 0, cost: null };
+  const tokensIn = Number(u.input_tokens) || 0;
+  const tokensOut = Number(u.output_tokens) || 0;
+  // Billed by the minute (whisper says so, "duration"); saying nothing of tokens either, by the length of the recording.
+  const seconds = Number(u.seconds) || (tokensIn || tokensOut ? 0 : wavSeconds(audio));
+  return { text: String(json?.text ?? '').trim() || '-', finish: 'stop', tokensIn, tokensOut, tokensCached: 0, seconds, cost: null };
+}
+
+/** How long a WAV recording (base64) is, in seconds, from its header; 0 when it isn't one. */
+export function wavSeconds(audio) {
+  if (String(audio?.format ?? '').toLowerCase() !== 'wav') return 0;
+  const b = Buffer.from(String(audio?.data ?? ''), 'base64');
+  if (b.length < 44 || b.toString('ascii', 0, 4) !== 'RIFF' || b.toString('ascii', 8, 12) !== 'WAVE') return 0;
+  let byteRate = 0;
+  for (let i = 12; i + 8 <= b.length;) {
+    const id = b.toString('ascii', i, i + 4);
+    const size = b.readUInt32LE(i + 4);
+    if (id === 'fmt ' && i + 20 <= b.length) byteRate = b.readUInt32LE(i + 16);
+    // The data chunk: its size may be a placeholder; what is there counts.
+    if (id === 'data') return byteRate > 0 ? Math.min(size, b.length - i - 8) / byteRate : 0;
+    i += 8 + size + (size % 2);
+  }
+  return 0;
 }
 
 /** The models a provider lists, with what OpenRouter says of each (price per token, what goes in). */
