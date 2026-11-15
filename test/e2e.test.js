@@ -490,3 +490,33 @@ test('a transcription model hears by its own door: the recording as a file, "-" 
   assert.equal((await transcribe({ baseUrl: 'https://r.openai.azure.com/openai/v1', key: 'k', model: 'meu-transcribe', audio: { data: '', format: 'wav' }, fetcher })).text, 'oi');
   assert.match(seen[3].url, /\/openai\/deployments\/meu-transcribe\/audio\/transcriptions\?api-version=/);
 });
+
+test('a Foundry model takes what OpenRouter says the same model takes, with its price as a reference', async () => {
+  const { Admin } = await import('../src/admin.js');
+  const catalog = { data: [
+    { id: 'openai/gpt-6-luna', name: 'Luna', context_length: 400000, pricing: { prompt: '0.0000001', completion: '0.0000005', input_cache_read: '0.00000001' }, architecture: { input_modalities: ['file', 'image', 'text'], output_modalities: ['text'] }, supported_parameters: ['tools'] },
+    { id: 'openai/gpt-6-luna:batch', name: 'Luna batch', pricing: { prompt: '0.00000005', completion: '0.00000025' }, architecture: { input_modalities: ['text'], output_modalities: ['text'] } },
+    { id: 'openrouter/auto', name: 'Auto', pricing: { prompt: '-1', completion: '-1' }, architecture: { input_modalities: ['text'], output_modalities: ['text'] } },
+  ] };
+  let asked = 0;
+  const admin = new Admin({ config: { get: (k, d) => d }, fetcher: async () => (asked++, new Response(JSON.stringify(catalog), { status: 200 })) });
+  const deployed = [
+    { kind: 'chat', id: 'minha-luna', base: 'gpt-6-luna', name: 'minha-luna (gpt-6-luna)', input: ['text'], output: ['text'], anyInput: true, priced: false, priceIn: 0, priceOut: 0, params: [] },
+    { kind: 'chat', id: 'Decision-1', base: 'Microsoft-Decision-1', name: 'Decision-1', input: ['text'], output: ['text'], anyInput: true, priced: false, priceIn: 0, priceOut: 0, params: [] },
+  ];
+  const [luna, unknown] = await admin.withCatalog(deployed);
+  assert.equal(luna.ref, 'openai/gpt-6-luna');
+  assert.deepEqual(luna.input, ['file', 'image', 'text']);
+  assert.equal(luna.anyInput, false);
+  assert.ok(Math.abs(luna.priceIn - 0.1) < 1e-9 && Math.abs(luna.priceOut - 0.5) < 1e-9 && Math.abs(luna.priceCached - 0.01) < 1e-9);
+  assert.equal(unknown.anyInput, true);
+  // Kept an hour: the second list doesn't ask again.
+  await admin.withCatalog(deployed);
+  assert.equal(asked, 1);
+  // A router with no price of its own (-1) is not priced at minus a million.
+  const { listModels } = await import('../src/upstream.js');
+  const auto = (await listModels({ baseUrl: 'https://openrouter.ai/api/v1', key: '', fetcher: async () => new Response(JSON.stringify(catalog), { status: 200 }) })).find((m) => m.id === 'openrouter/auto');
+  assert.equal(auto.priced, false);
+  assert.equal(auto.variable, true);
+  assert.equal(auto.priceIn, 0);
+});

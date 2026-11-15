@@ -302,14 +302,37 @@ function freeCard(c) {
       <p class="sub">${on ? `O último recurso, da ${esc(p.name)}: entram quando os seus modelos falham ou o teto de gasto bate.` : 'Desligados: se os seus modelos falharem, o pedido fica sem resposta.'}</p></div>
       <label class="switch on-good" title="Modelos grátis"><input type="checkbox" data-free ${on ? 'checked' : ''}><i></i></label></div>
     ${on ? `<div class="free-jobs">${c.jobs.map((j) => `<label class="chip-toggle"><input type="checkbox" data-free-job="${j.key}" ${j.free_fallback ? 'checked' : ''}>${icon(j.key)}<span>${esc(j.label)}</span></label>`).join('')}</div>
-      <p class="faint small">${num(c.live.free.known)} grátis disponíveis${c.live.free.resting.length ? ` · ${c.live.free.resting.length} descansando` : ''}${Object.keys(c.live.free.last_good).length ? ` · último que respondeu: ${Object.values(c.live.free.last_good).map(esc).join(', ')}` : ''}</p>
+      ${Object.keys(c.live.free.last_good).length ? `<p class="faint small">Último que respondeu: ${Object.values(c.live.free.last_good).map(esc).join(', ')}${c.live.free.resting.length ? ` · ${c.live.free.resting.length} descansando` : ''}</p>` : ''}
+      <div class="free-pick">${state.freeList ? freeList(c) : '<button type="button" class="btn" data-act="free-load">Ver os grátis disponíveis</button>'}</div>
       <details class="limits" data-key="free-adv"><summary>Avançado</summary><form class="form" data-form="settings">
         <label>API dos grátis<select name="free_provider">${c.providers.map((x) => `<option value="${x.id}" ${x.id === s.free_provider ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
         <label>Ao mesmo tempo<input type="number" name="free_max_concurrency" min="1" value="${s.free_max_concurrency}"></label>
         <label>Por minuto<input type="number" name="free_rpm" min="0" value="${s.free_rpm}"></label>
         <label class="wide">Preferidos, na ordem <small>um por linha</small><textarea name="free_preferred">${esc(s.free_preferred)}</textarea></label>
         <label class="wide">Evitar <small>só quando não sobrar outro</small><textarea name="free_avoid">${esc(s.free_avoid)}</textarea></label>
+        <div class="actions wide"><button type="button" class="btn primary" data-act="free-save">Salvar</button></div>
       </form></details>` : ''}</section>`;
+}
+
+const lines = (v) => String(v ?? '').split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
+
+/** The free models there are now: ★ preferred (in the order marked), ⊘ avoided. Saved as they are tapped. */
+function freeList(c) {
+  const list = state.freeList;
+  if (list === 'loading') return '<p class="empty"><span class="spin"></span></p>';
+  if (!list.length) return '<p class="faint small">Nenhum grátis agora (ou a API dos grátis está sem chave).</p>';
+  const pref = lines(c.settings.free_preferred);
+  const avoid = new Set(lines(c.settings.free_avoid));
+  const place = (m) => (pref.includes(m.id) ? pref.indexOf(m.id) : avoid.has(m.id) ? 1e6 : 1e5);
+  return `<p class="faint small">${num(list.length)} grátis agora · ★ preferido, na ordem em que marcar · ⊘ evitar</p>
+    <div class="free-list">${[...list].sort((a, b) => place(a) - place(b)).map((m) => {
+      const i = pref.indexOf(m.id);
+      const off = avoid.has(m.id);
+      return `<div class="free-row ${off ? 'off' : ''}"><span class="n">${i >= 0 ? i + 1 : ''}</span>
+        <div class="what"><b>${esc(m.id)}</b><span class="caps">${capsOf(m).map((x) => `<i>${esc(x)}</i>`).join('')}${m.context ? `<i>${compact(m.context)}</i>` : ''}</span></div>
+        <button type="button" class="icon-btn star ${i >= 0 ? 'on' : ''}" data-act="free-pref" data-id="${esc(m.id)}" title="Preferido">★</button>
+        <button type="button" class="icon-btn ban ${off ? 'on' : ''}" data-act="free-avoid" data-id="${esc(m.id)}" title="Evitar">⊘</button></div>`;
+    }).join('')}</div>`;
 }
 
 function jobCard(j, ji) {
@@ -435,25 +458,56 @@ async function routeDialog(job, route) {
     $('[data-chosen]', dialog).innerHTML = id ? `${icon('check')}<span><b>${esc(id)}</b><small>${esc(p?.name ?? '')}</small></span>` : '<span class="faint">Nenhum escolhido ainda: toque num modelo da lista</span>';
   };
   const option = (p, m, on) => {
-    const price = m.priced ? (m.price_in || m.price_out ? `${usd(m.price_in, 2)} → ${usd(m.price_out, 2)} por milhão` : 'grátis') : '';
+    const price = m.priced ? (m.price_in || m.price_out ? `${usd(m.price_in, 2)} → ${usd(m.price_out, 2)} por milhão${m.ref ? ' (referência)' : ''}` : 'grátis') : m.variable ? 'preço variável' : '';
     const meta = [price, m.context ? `${compact(m.context)} de contexto` : '', m.name !== m.id ? m.name : ''].filter(Boolean).join(' · ');
     return `<button type="button" class="opt ${on ? 'on' : ''} ${m.fits === false ? 'nofit' : ''}" data-pid="${p.id}" data-pick="${esc(m.id)}">
       <b>${esc(m.id)}</b>${m.fits === false && needWord ? `<em>não entende ${needWord}</em>` : ''}
       <span class="caps">${capsOf(m).map((x) => `<i>${esc(x)}</i>`).join('')}</span>${meta ? `<small>${esc(meta)}</small>` : ''}</button>`;
   };
+  // Long lists come folded by maker ("openai", "google"…), the makers with models that fit first; a search
+  // shows the matches flat. The chosen one's maker stays open.
+  const openMakers = new Set();
+  const makerOf = (m) => (m.id.includes('/') ? m.id.split('/')[0] : '');
   const draw = () => {
     const q = find.value.trim();
     const low = q.toLowerCase();
     const { pid, id } = chosenNow();
     box.innerHTML = groups.map((g) => {
       const on = (m) => g.p.id === pid && m.id === id;
-      const hits = g.models.filter((m) => !low || m.id.toLowerCase().includes(low) || m.name.toLowerCase().includes(low)).sort((a, b) => on(b) - on(a));
-      const shown = hits.slice(0, low ? 80 : 40);
-      const own = q && !g.loading && !g.error && !hits.length ? `<button type="button" class="opt custom" data-pid="${g.p.id}" data-pick="${esc(q)}"><b>Usar “${esc(q)}”</b><small>escrito à mão, na ${esc(g.p.name)}</small></button>` : '';
-      const body = g.loading ? '<p class="empty"><span class="spin"></span></p>'
-        : g.error ? `<p class="faint small pad">Não carregou: ${esc(g.error)}</p>`
-        : shown.map((m) => option(g.p, m, on(m))).join('') + (hits.length > shown.length ? `<p class="faint small pad">mais ${num(hits.length - shown.length)}: busque pelo nome</p>` : '') + (!hits.length && !own ? '<p class="faint small pad">Nenhum com esse nome.</p>' : '');
-      return `<div class="group"><div class="group-head"><b>${esc(g.p.name)}</b><small>${g.loading ? 'carregando…' : g.error ? '' : (() => { const n = low ? hits.length : g.models.length; return `${num(n)} ${low ? (n === 1 ? 'achado' : 'achados') : n === 1 ? 'disponível' : 'disponíveis'}`; })()}</small></div>${body}${own}</div>`;
+      const count = (n, what) => `${num(n)} ${n === 1 ? what[0] : what[1]}`;
+      let body = '';
+      let note = '';
+      if (g.loading) body = '<p class="empty"><span class="spin"></span></p>';
+      else if (g.error) body = `<p class="faint small pad">Não carregou: ${esc(g.error)}</p>`;
+      else if (low) {
+        const hits = g.models.filter((m) => m.id.toLowerCase().includes(low) || m.name.toLowerCase().includes(low)).sort((a, b) => on(b) - on(a));
+        const shown = hits.slice(0, 80);
+        note = count(hits.length, ['achado', 'achados']);
+        body = shown.map((m) => option(g.p, m, on(m))).join('')
+          + (hits.length > shown.length ? `<p class="faint small pad">mais ${num(hits.length - shown.length)}: busque mais pelo nome</p>` : '')
+          + (hits.length ? '' : `<button type="button" class="opt custom" data-pid="${g.p.id}" data-pick="${esc(q)}"><b>Usar “${esc(q)}”</b><small>escrito à mão, na ${esc(g.p.name)}</small></button>`);
+      } else if (g.models.length <= 12 || !g.models.some(makerOf)) {
+        note = count(g.models.length, ['disponível', 'disponíveis']);
+        body = g.models.map((m) => option(g.p, m, on(m))).join('');
+      } else {
+        note = count(g.models.length, ['disponível', 'disponíveis']);
+        const makers = new Map();
+        for (const m of g.models) {
+          const k = makerOf(m) || 'outros';
+          if (!makers.has(k)) makers.set(k, []);
+          makers.get(k).push(m);
+        }
+        const fitting = (list) => list.filter((m) => m.fits === true).length;
+        body = [...makers].sort(([a, la], [b, lb]) => (fitting(lb) > 0) - (fitting(la) > 0) || a.localeCompare(b)).map(([maker, list]) => {
+          const key = `${g.p.id}:${maker}`;
+          const open = openMakers.has(key) || list.some(on);
+          const fit = fitting(list);
+          return `<button type="button" class="maker ${open ? 'open' : ''}" data-maker="${esc(key)}"><span class="chev">›</span><b>${esc(maker)}</b>
+              <small>${num(list.length)}${needWord ? ` · ${fit ? `<em>${num(fit)} entende${fit === 1 ? '' : 'm'} ${needWord}</em>` : `nenhum entende ${needWord}`}` : ''}</small></button>
+            ${open ? `<div class="maker-list">${list.map((m) => option(g.p, m, on(m))).join('')}</div>` : ''}`;
+        }).join('');
+      }
+      return `<div class="group"><div class="group-head"><b>${esc(g.p.name)}</b><small>${g.loading ? 'carregando…' : note}</small></div>${body}</div>`;
     }).join('');
   };
   const load = async () => {
@@ -467,7 +521,7 @@ async function routeDialog(job, route) {
     const unknown = groups.filter((g) => g.models.some((m) => m.fits === null)).map((g) => g.p.name);
     const noKey = c.providers.filter((p) => p.enabled && !p.has_key).map((p) => p.name);
     $('[data-note]', dialog).textContent = [
-      unknown.length && needWord ? `${and(unknown)} não diz quais entendem ${needWord}: escolha um que entenda.` : '',
+      unknown.length && needWord ? `Em ${and(unknown)}, os modelos sem etiqueta não estão no catálogo da OpenRouter: não sei se entendem ${needWord}.` : '',
       noKey.length ? `Sem chave, ${and(noKey)} fica fora da lista.` : '',
     ].filter(Boolean).join(' ');
   };
@@ -479,6 +533,13 @@ async function routeDialog(job, route) {
     $('[data-pick]', box)?.click();
   };
   box.onclick = (e) => {
+    const fold = e.target.closest('[data-maker]');
+    if (fold) {
+      const k = fold.dataset.maker;
+      if (openMakers.has(k)) openMakers.delete(k);
+      else openMakers.add(k);
+      return draw();
+    }
     const b = e.target.closest('[data-pick]');
     if (!b) return;
     form.provider_id.value = b.dataset.pid;
@@ -488,7 +549,7 @@ async function routeDialog(job, route) {
     if (m?.priced) {
       form.price_in.value = +m.price_in.toFixed(6);
       form.price_out.value = +m.price_out.toFixed(6);
-      $('[data-price-note]', dialog).textContent = `Preço que a ${who?.name ?? 'API'} informa.`;
+      $('[data-price-note]', dialog).textContent = m.ref ? `Preço de referência da OpenRouter (${m.ref}); o da ${who?.name ?? 'API'} costuma ser o mesmo, confira se quiser.` : `Preço que a ${who?.name ?? 'API'} informa.`;
     } else {
       form.price_in.value = 0;
       form.price_out.value = 0;
@@ -771,6 +832,28 @@ document.addEventListener('click', async (e) => {
     case 'logout':
       await api('POST', '/logout', {}).catch(() => {});
       return login();
+    case 'free-load': {
+      state.freeList = 'loading';
+      render();
+      const out = await attempt(() => api('GET', '/free'));
+      state.freeList = out?.models ?? null;
+      return render();
+    }
+    case 'free-pref':
+    case 'free-avoid': {
+      let pref = lines(c.settings.free_preferred);
+      let avoid = lines(c.settings.free_avoid);
+      const was = (d.act === 'free-pref' ? pref : avoid).includes(d.id);
+      pref = pref.filter((x) => x !== d.id);
+      avoid = avoid.filter((x) => x !== d.id);
+      if (!was) (d.act === 'free-pref' ? pref : avoid).push(d.id);
+      const out = await attempt(() => api('PUT', '/settings', { free_preferred: pref.join('\n'), free_avoid: avoid.join('\n') }), 'Salvo');
+      return out && done(out);
+    }
+    case 'free-save': {
+      const out = await attempt(() => api('PUT', '/settings', { free_preferred: $('textarea[name=free_preferred]').value, free_avoid: $('textarea[name=free_avoid]').value }), 'Salvo');
+      return out && done(out);
+    }
     case 'usd-auto': {
       const out = await attempt(() => api('PUT', '/settings', { usd_auto: 1 }), 'Dólar do dia');
       return out && done(out);

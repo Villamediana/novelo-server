@@ -137,6 +137,7 @@ async function azureDeployments({ baseUrl, key, headers, fetcher }) {
       kind: isTranscriber(d.model ?? d.id) ? 'transcribe' : 'chat',
       lifecycle: String(entry(d.model ?? d.id)?.lifecycle_status ?? ''),
       id: d.id,
+      base: String(d.model ?? d.id),
       name: d.model && d.model !== d.id ? `${d.id} (${d.model})` : d.id,
       created: Number(d.created_at) || 0,
       context: 0,
@@ -212,10 +213,12 @@ export async function listModels({ baseUrl, key, headers = {}, fetcher = fetch }
       context: Number(m.context_length) || 0,
       input: Array.isArray(m.architecture?.input_modalities) ? m.architecture.input_modalities : isTranscriber(m.id) ? ['audio'] : ['text'],
       output: Array.isArray(m.architecture?.output_modalities) ? m.architecture.output_modalities : ['text'],
-      // Dollars per million tokens.
-      priceIn: Number(m.pricing?.prompt) * 1e6 || 0,
-      priceOut: Number(m.pricing?.completion) * 1e6 || 0,
-      priced: m.pricing?.prompt !== undefined,
+      // Dollars per million tokens. A router that picks a model per request says -1: no price of its own.
+      priceIn: Math.max(0, Number(m.pricing?.prompt) * 1e6 || 0),
+      priceOut: Math.max(0, Number(m.pricing?.completion) * 1e6 || 0),
+      priceCached: Math.max(0, Number(m.pricing?.input_cache_read) * 1e6 || 0),
+      priced: m.pricing?.prompt !== undefined && Number(m.pricing.prompt) >= 0 && Number(m.pricing?.completion ?? 0) >= 0,
+      variable: Number(m.pricing?.prompt) < 0,
       params: Array.isArray(m.supported_parameters) ? m.supported_parameters : [],
     }));
 }

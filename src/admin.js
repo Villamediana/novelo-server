@@ -152,6 +152,7 @@ export class Admin {
     if ((x = m(/^\/api\/providers\/(\d+)\/key$/)) && method === 'PUT') return this.saveKey(Number(x[1]), body);
     if ((x = m(/^\/api\/providers\/(\d+)\/models$/)) && method === 'GET') return this.models(Number(x[1]), query.get('job') ?? '');
     if ((x = m(/^\/api\/providers\/(\d+)\/test$/)) && method === 'POST') return this.testProvider(Number(x[1]));
+    if (method === 'GET' && p === '/api/free') return this.freeModels();
     if ((x = m(/^\/api\/jobs\/([a-z][a-z0-9_]*)$/)) && method === 'PUT') return this.saveJob(x[1], body);
     if (method === 'POST' && p === '/api/routes') return this.saveRoute(null, body);
     if ((x = m(/^\/api\/routes\/(\d+)$/)) && method === 'PUT') return this.saveRoute(Number(x[1]), body);
@@ -242,19 +243,54 @@ export class Admin {
     }
     const needs = (this.router.jobs.get(jobKey)?.accepts ?? 'text').split(',');
     const rank = (fits) => (fits === true ? 0 : fits === null ? 1 : 2);
+    const list = kept.list.some((m) => m.anyInput && m.kind !== 'transcribe') ? await this.withCatalog(kept.list) : kept.list;
     return {
-      models: kept.list
+      models: list
         // Everything that answers in text, with what it takes and can do; whoever chooses decides. Those that fit
         // this request come first; an API that doesn't say what goes in (Azure) has fits = null.
         // Transcription models only hear (the server sends them the recording by their own door).
         .filter((m) => m.output.includes('text') && (m.kind !== 'transcribe' || jobKey === 'hear'))
         .map((m) => ({
-          id: m.id, name: m.name, price_in: m.priceIn, price_out: m.priceOut, priced: m.priced, context: m.context,
+          id: m.id, name: m.name, price_in: m.priceIn, price_out: m.priceOut, price_cached: m.priceCached ?? 0, priced: m.priced, context: m.context,
+          variable: Boolean(m.variable), ref: m.ref ?? '',
           input: m.anyInput ? null : m.input, params: m.params, lifecycle: m.lifecycle ?? '', kind: m.kind ?? 'chat',
           fits: m.kind === 'transcribe' ? true : m.anyInput ? null : needs.every((n) => m.input.includes(n)),
         }))
         .sort((a, b) => rank(a.fits) - rank(b.fits) || a.id.localeCompare(b.id)),
     };
+  }
+
+  /**
+   * An API that doesn't say what its models take, nor their price (Azure): what OpenRouter's catalog says of the
+   * same model, found by its name ("gpt-6-luna" → "openai/gpt-6-luna"). A reference: marked as such (ref).
+   */
+  async withCatalog(list) {
+    if (!this.catalog || this.now() - this.catalog.at > 3600_000) {
+      try {
+        this.catalog = { at: this.now(), list: await listModels({ baseUrl: 'https://openrouter.ai/api/v1', key: '', fetcher: this.fetcher }) };
+      } catch {
+        return list;
+      }
+    }
+    const norm = (v) => String(v).toLowerCase().split('/').pop().split(':')[0].replace(/[^a-z0-9]/g, '');
+    const known = new Map();
+    for (const m of this.catalog.list) {
+      const k = norm(m.id);
+      // The plain one before its variants (":free", ":batch").
+      if (!known.has(k) || (known.get(k).id.includes(':') && !m.id.includes(':'))) known.set(k, m);
+    }
+    return list.map((m) => {
+      const r = m.anyInput && m.kind !== 'transcribe' ? known.get(norm(m.base ?? m.id)) ?? known.get(norm(m.id)) : null;
+      if (!r) return m;
+      return { ...m, anyInput: false, input: r.input, output: r.output, params: r.params, context: r.context || m.context,
+        priceIn: r.priceIn, priceOut: r.priceOut, priceCached: r.priceCached, priced: r.priced, ref: r.id };
+    });
+  }
+
+  /** The free models there are now (the last resort's list), for choosing the preferred and the avoided. */
+  async freeModels() {
+    const list = await this.router.free.models();
+    return { models: list.map((m) => ({ id: m.id, name: m.name, input: m.input, context: m.context, created: m.created })).sort((a, b) => b.created - a.created) };
   }
 
   /**
