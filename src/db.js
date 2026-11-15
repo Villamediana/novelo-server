@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS requests(
   total_ms INTEGER NOT NULL DEFAULT 0,
   tokens_in INTEGER NOT NULL DEFAULT 0,
   tokens_out INTEGER NOT NULL DEFAULT 0,
+  tokens_cached INTEGER NOT NULL DEFAULT 0,
   cost REAL NOT NULL DEFAULT 0,
   bytes_in INTEGER NOT NULL DEFAULT 0,
   bytes_out INTEGER NOT NULL DEFAULT 0
@@ -93,6 +94,7 @@ CREATE TABLE IF NOT EXISTS agg_hour(
   retries INTEGER NOT NULL DEFAULT 0,
   tokens_in INTEGER NOT NULL DEFAULT 0,
   tokens_out INTEGER NOT NULL DEFAULT 0,
+  tokens_cached INTEGER NOT NULL DEFAULT 0,
   cost REAL NOT NULL DEFAULT 0,
   ms_sum INTEGER NOT NULL DEFAULT 0,
   queue_ms_sum INTEGER NOT NULL DEFAULT 0,
@@ -204,6 +206,9 @@ export function openDb(dataDir, file = 'novelo.db') {
 function migrate(db) {
   const has = (table, column) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
   if (!has('devices', 'install')) db.exec("ALTER TABLE devices ADD COLUMN install TEXT NOT NULL DEFAULT ''");
+  // Input tokens the model already had (its cache of the prompt's prefix): counted to see the cache work.
+  if (!has('requests', 'tokens_cached')) db.exec('ALTER TABLE requests ADD COLUMN tokens_cached INTEGER NOT NULL DEFAULT 0');
+  if (!has('agg_hour', 'tokens_cached')) db.exec('ALTER TABLE agg_hour ADD COLUMN tokens_cached INTEGER NOT NULL DEFAULT 0');
 }
 
 function seed(db) {

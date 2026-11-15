@@ -216,8 +216,8 @@ function numbers(o) {
       <div class="kpi"><span>Gasto do mês</span><div class="num">${usd(o.budget.month_usd)}</div><small>${o.budget.month_limit ? `de ${usd(o.budget.month_limit, 0)}` : 'sem teto'}</small></div>
       <div class="kpi"><span>Planos</span><div class="num">${compact(o.plans.plus)}</div><small>Novelo+ · ${num(o.plans.trial)} em teste · ${num(o.plans.ended)} encerrados</small></div>
     </div>
-    <div class="card scroll">${o.models.length ? `<table><thead><tr><th>Pedido</th><th>Modelo</th><th class="r">Pedidos</th><th class="r">Sem resposta</th><th class="r">Custo</th><th class="r">Tempo</th></tr></thead><tbody>
-      ${o.models.map((m) => `<tr><td>${esc(o.labels[m.job] ?? m.job)}</td><td><span class="mono">${esc(m.model)}</span></td><td class="r">${num(m.requests)}</td><td class="r">${pct(m.errors, m.requests)}</td><td class="r">${usd(m.cost)}</td><td class="r">${m.requests - m.errors ? secs(m.ms_sum / (m.requests - m.errors)) : '—'}</td></tr>`).join('')}
+    <div class="card scroll">${o.models.length ? `<table><thead><tr><th>Pedido</th><th>Modelo</th><th class="r">Pedidos</th><th class="r">Sem resposta</th><th class="r" title="Da entrada, quanto o modelo já tinha em cache">Cache</th><th class="r">Custo</th><th class="r">Tempo</th></tr></thead><tbody>
+      ${o.models.map((m) => `<tr><td>${esc(o.labels[m.job] ?? m.job)}</td><td><span class="mono">${esc(m.model)}</span></td><td class="r">${num(m.requests)}</td><td class="r">${pct(m.errors, m.requests)}</td><td class="r">${m.tokens_cached ? pct(m.tokens_cached, m.tokens_in) : '—'}</td><td class="r">${usd(m.cost)}</td><td class="r">${m.requests - m.errors ? secs(m.ms_sum / (m.requests - m.errors)) : '—'}</td></tr>`).join('')}
       </tbody></table>` : '<p class="empty">Nenhum pedido neste período.</p>'}</div>
     ${o.errors.length ? `<div class="card scroll"><table><tbody>${o.errors.map((e) => `<tr><td>${esc(ERRORS[e.code] ?? e.code)}</td><td class="r">${num(e.n)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
 }

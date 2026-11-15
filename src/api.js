@@ -227,7 +227,7 @@ export class Api {
       this.telemetry.record({
         ts: now, device, job: job.key, provider: r.provider, model: r.model, free: r.free, ok: r.ok, code: r.code || '',
         attempts: r.attempts, queueMs: Math.round(r.queueMs), upstreamMs: Math.round(r.upstreamMs), totalMs: now - t0,
-        tokensIn: r.tokensIn, tokensOut: r.tokensOut, cost: r.cost || 0, bytesIn, bytesOut: run.size,
+        tokensIn: r.tokensIn, tokensOut: r.tokensOut, tokensCached: r.tokensCached || 0, cost: r.cost || 0, bytesIn, bytesOut: run.size,
       });
       // Nobody got it and nobody can ask again for a failure worth keeping: let go of it sooner.
       if (!r.ok) this.runs.delete(key);

@@ -146,6 +146,8 @@ async function chatOnce({ baseUrl, key, headers = {}, body, timeoutMs = 90_000, 
     finish: String(choice?.finish_reason ?? ''),
     tokensIn: Number(u.prompt_tokens) || 0,
     tokensOut: Number(u.completion_tokens) || 0,
+    // Of the input, what the model had in its cache (OpenAI/OpenRouter way; Anthropic's own name too).
+    tokensCached: Number(u.prompt_tokens_details?.cached_tokens ?? u.cache_read_input_tokens) || 0,
     cost: typeof u.cost === 'number' ? u.cost : null,
   };
 }
@@ -233,7 +235,7 @@ export async function transcribe({ baseUrl, key, headers = {}, model, audio, tim
     throw new UpstreamError(kindOf(res.status), res.status, (err?.message ?? `HTTP ${res.status}`).slice(0, 300), retryAfter(res.headers));
   }
   const u = json?.usage ?? {};
-  return { text: String(json?.text ?? '').trim() || '-', finish: 'stop', tokensIn: Number(u.input_tokens) || 0, tokensOut: Number(u.output_tokens) || 0, cost: null };
+  return { text: String(json?.text ?? '').trim() || '-', finish: 'stop', tokensIn: Number(u.input_tokens) || 0, tokensOut: Number(u.output_tokens) || 0, tokensCached: 0, cost: null };
 }
 
 /** The models a provider lists, with what OpenRouter says of each (price per token, what goes in). */
