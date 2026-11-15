@@ -61,11 +61,54 @@ function authOf(baseUrl, key) {
   return isAzure(baseUrl) ? { 'api-key': key } : { Authorization: `Bearer ${key}` };
 }
 
+// What an API said it doesn't take, learned per API and model, so the next request goes right the first time:
+// a parameter under another name ("max_tokens" → "max_completion_tokens" on OpenAI's newer models, also on
+// Azure), or one it doesn't take at all (a "temperature" a reasoning model refuses).
+const learned = new Map();
+
+function adapt(body, rules) {
+  if (!rules) return body;
+  const out = { ...body };
+  for (const [from, to] of rules.rename) {
+    if (!(from in out)) continue;
+    if (!(to in out)) out[to] = out[from];
+    delete out[from];
+  }
+  for (const k of rules.drop) delete out[k];
+  return out;
+}
+
+/** "Unsupported parameter: 'max_tokens' … Use 'max_completion_tokens' instead." → what to change, or null. */
+export function lessonOf(message) {
+  const m = /unsupported (?:parameter|value)\W+'([a-z_]+)'/i.exec(String(message));
+  if (!m) return null;
+  return { param: m[1], instead: /use '([a-z_]+)' instead/i.exec(String(message))?.[1] ?? null };
+}
+
 /**
  * POST {base}/chat/completions. Returns { text, tokensIn, tokensOut, cost (USD, or null when the
- * API doesn't say), finish }.
+ * API doesn't say), finish }. A 400 naming a parameter the model doesn't take: changed as it says, once more.
  */
 export async function chat({ baseUrl, key, headers = {}, body, timeoutMs = 90_000, fetcher = fetch }) {
+  if (typeof body !== 'object' || !body) return chatOnce({ baseUrl, key, headers, body, timeoutMs, fetcher });
+  const where = `${baseUrl}|${body.model ?? ''}`;
+  let payload = adapt(body, learned.get(where));
+  for (let tries = 0; ; tries++) {
+    try {
+      return await chatOnce({ baseUrl, key, headers, body: payload, timeoutMs, fetcher });
+    } catch (e) {
+      const lesson = tries < 3 && e instanceof UpstreamError && e.status === 400 ? lessonOf(e.message) : null;
+      if (!lesson || !(lesson.param in payload)) throw e;
+      const rules = learned.get(where) ?? { rename: new Map(), drop: new Set() };
+      if (lesson.instead) rules.rename.set(lesson.param, lesson.instead);
+      else rules.drop.add(lesson.param);
+      learned.set(where, rules);
+      payload = adapt(payload, rules);
+    }
+  }
+}
+
+async function chatOnce({ baseUrl, key, headers = {}, body, timeoutMs = 90_000, fetcher = fetch }) {
   let res;
   let raw;
   try {
@@ -137,6 +180,7 @@ async function azureDeployments({ baseUrl, key, headers, fetcher }) {
       kind: isTranscriber(d.model ?? d.id) ? 'transcribe' : 'chat',
       lifecycle: String(entry(d.model ?? d.id)?.lifecycle_status ?? ''),
       id: d.id,
+      base: String(d.model ?? d.id),
       name: d.model && d.model !== d.id ? `${d.id} (${d.model})` : d.id,
       created: Number(d.created_at) || 0,
       context: 0,
@@ -212,10 +256,12 @@ export async function listModels({ baseUrl, key, headers = {}, fetcher = fetch }
       context: Number(m.context_length) || 0,
       input: Array.isArray(m.architecture?.input_modalities) ? m.architecture.input_modalities : isTranscriber(m.id) ? ['audio'] : ['text'],
       output: Array.isArray(m.architecture?.output_modalities) ? m.architecture.output_modalities : ['text'],
-      // Dollars per million tokens.
-      priceIn: Number(m.pricing?.prompt) * 1e6 || 0,
-      priceOut: Number(m.pricing?.completion) * 1e6 || 0,
-      priced: m.pricing?.prompt !== undefined,
+      // Dollars per million tokens. A router that picks a model per request says -1: no price of its own.
+      priceIn: Math.max(0, Number(m.pricing?.prompt) * 1e6 || 0),
+      priceOut: Math.max(0, Number(m.pricing?.completion) * 1e6 || 0),
+      priceCached: Math.max(0, Number(m.pricing?.input_cache_read) * 1e6 || 0),
+      priced: m.pricing?.prompt !== undefined && Number(m.pricing.prompt) >= 0 && Number(m.pricing?.completion ?? 0) >= 0,
+      variable: Number(m.pricing?.prompt) < 0,
       params: Array.isArray(m.supported_parameters) ? m.supported_parameters : [],
     }));
 }

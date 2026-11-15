@@ -490,3 +490,60 @@ test('a transcription model hears by its own door: the recording as a file, "-" 
   assert.equal((await transcribe({ baseUrl: 'https://r.openai.azure.com/openai/v1', key: 'k', model: 'meu-transcribe', audio: { data: '', format: 'wav' }, fetcher })).text, 'oi');
   assert.match(seen[3].url, /\/openai\/deployments\/meu-transcribe\/audio\/transcriptions\?api-version=/);
 });
+
+test('a Foundry model takes what OpenRouter says the same model takes, with its price as a reference', async () => {
+  const { Admin } = await import('../src/admin.js');
+  const catalog = { data: [
+    { id: 'openai/gpt-6-luna', name: 'Luna', context_length: 400000, pricing: { prompt: '0.0000001', completion: '0.0000005', input_cache_read: '0.00000001' }, architecture: { input_modalities: ['file', 'image', 'text'], output_modalities: ['text'] }, supported_parameters: ['tools'] },
+    { id: 'openai/gpt-6-luna:batch', name: 'Luna batch', pricing: { prompt: '0.00000005', completion: '0.00000025' }, architecture: { input_modalities: ['text'], output_modalities: ['text'] } },
+    { id: 'openrouter/auto', name: 'Auto', pricing: { prompt: '-1', completion: '-1' }, architecture: { input_modalities: ['text'], output_modalities: ['text'] } },
+  ] };
+  let asked = 0;
+  const admin = new Admin({ config: { get: (k, d) => d }, fetcher: async () => (asked++, new Response(JSON.stringify(catalog), { status: 200 })) });
+  const deployed = [
+    { kind: 'chat', id: 'minha-luna', base: 'gpt-6-luna', name: 'minha-luna (gpt-6-luna)', input: ['text'], output: ['text'], anyInput: true, priced: false, priceIn: 0, priceOut: 0, params: [] },
+    { kind: 'chat', id: 'Decision-1', base: 'Microsoft-Decision-1', name: 'Decision-1', input: ['text'], output: ['text'], anyInput: true, priced: false, priceIn: 0, priceOut: 0, params: [] },
+  ];
+  const [luna, unknown] = await admin.withCatalog(deployed);
+  assert.equal(luna.ref, 'openai/gpt-6-luna');
+  assert.deepEqual(luna.input, ['file', 'image', 'text']);
+  assert.equal(luna.anyInput, false);
+  assert.ok(Math.abs(luna.priceIn - 0.1) < 1e-9 && Math.abs(luna.priceOut - 0.5) < 1e-9 && Math.abs(luna.priceCached - 0.01) < 1e-9);
+  assert.equal(unknown.anyInput, true);
+  // Kept an hour: the second list doesn't ask again.
+  await admin.withCatalog(deployed);
+  assert.equal(asked, 1);
+  // A router with no price of its own (-1) is not priced at minus a million.
+  const { listModels } = await import('../src/upstream.js');
+  const auto = (await listModels({ baseUrl: 'https://openrouter.ai/api/v1', key: '', fetcher: async () => new Response(JSON.stringify(catalog), { status: 200 }) })).find((m) => m.id === 'openrouter/auto');
+  assert.equal(auto.priced, false);
+  assert.equal(auto.variable, true);
+  assert.equal(auto.priceIn, 0);
+});
+
+test('a parameter the model doesn\'t take is renamed or left out as the API says, and remembered', async () => {
+  const { chat, lessonOf } = await import('../src/upstream.js');
+  assert.deepEqual(lessonOf("Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."), { param: 'max_tokens', instead: 'max_completion_tokens' });
+  assert.deepEqual(lessonOf("Unsupported value: 'temperature' does not support 0.2 with this model."), { param: 'temperature', instead: null });
+  assert.equal(lessonOf('outra coisa'), null);
+  const sent = [];
+  const fetcher = async (url, init) => {
+    const b = JSON.parse(init.body);
+    sent.push(b);
+    if ('max_tokens' in b) return new Response(JSON.stringify({ error: { message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead." } }), { status: 400 });
+    if ('temperature' in b) return new Response(JSON.stringify({ error: { message: "Unsupported value: 'temperature' does not support 0.2 with this model." } }), { status: 400 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+  };
+  const base = 'https://r.openai.azure.com/openai/v1';
+  const out = await chat({ baseUrl: base, key: 'k', body: { model: 'luna-aprende', max_tokens: 2000, temperature: 0.2, messages: [] }, fetcher });
+  assert.equal(out.text, 'ok');
+  assert.equal(sent.length, 3);
+  assert.equal(sent[2].max_completion_tokens, 2000);
+  assert.equal('max_tokens' in sent[2] || 'temperature' in sent[2], false);
+  // The next request to the same model goes right the first time.
+  await chat({ baseUrl: base, key: 'k', body: { model: 'luna-aprende', max_tokens: 500, temperature: 0.2, messages: [] }, fetcher });
+  assert.equal(sent.length, 4);
+  assert.equal(sent[3].max_completion_tokens, 500);
+  // A 400 about something else is not retried.
+  await assert.rejects(chat({ baseUrl: base, key: 'k', body: { model: 'outro', messages: [], max_tokens: 1 }, fetcher: async () => new Response('{"error":{"message":"bad request"}}', { status: 400 }) }));
+});
