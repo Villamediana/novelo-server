@@ -15,8 +15,9 @@ const CACHE_MAX = 200_000;
 const b64 = (s) => Buffer.from(String(s ?? ''), 'base64');
 
 export class Devices {
-  constructor({ db, settings, secret, roots = [], revocations = null, now = Date.now }) {
+  constructor({ db, settings, secret, plans, roots = [], revocations = null, now = Date.now }) {
     this.db = db;
+    this.plans = plans;
     this.settings = settings;
     this.secret = secret;
     this.roots = roots;
@@ -27,10 +28,10 @@ export class Devices {
     this.registeredDay = { day: '', n: 0 };
     this.q = {
       get: db.prepare('SELECT * FROM devices WHERE id = ?'),
-      insert: db.prepare(`INSERT INTO devices(id,public_key,created,last_seen,app_version,package,attested,attest_level,attest_note,boot)
-        VALUES(?,?,?,?,?,?,?,?,?,?)
+      insert: db.prepare(`INSERT INTO devices(id,public_key,created,last_seen,app_version,package,attested,attest_level,attest_note,boot,install)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen, app_version=excluded.app_version, package=excluded.package,
-          attested=excluded.attested, attest_level=excluded.attest_level, attest_note=excluded.attest_note, boot=excluded.boot`),
+          attested=excluded.attested, attest_level=excluded.attest_level, attest_note=excluded.attest_note, boot=excluded.boot, install=excluded.install`),
       seen: db.prepare('UPDATE devices SET last_seen = ?, app_version = ? WHERE id = ?'),
       status: db.prepare('UPDATE devices SET status = ?, note = ? WHERE id = ?'),
     };
@@ -84,7 +85,8 @@ export class Devices {
 
   /**
    * Registers a phone's key. [body]: { challenge, public_key (SPKI, base64), proof (signature of the
-   * challenge with that key, base64), attestation ([certificates, base64, leaf first]), app: { version, package } }.
+   * challenge with that key, base64), attestation ([certificates, base64, leaf first]), app: { version, package },
+   * install (the phone itself: the same when the app is installed again, so its trial goes on, not over) }.
    */
   register(body, ip, day) {
     const challenge = this.checkChallenge(body.challenge);
@@ -130,6 +132,9 @@ export class Devices {
     const known = this.q.get.get(id);
     if (known?.status === 'blocked') throw new HttpError(403, 'blocked', 'Este aparelho está bloqueado.');
     if (!known) this.countRegistration(ip, day);
+    // The plan belongs to the phone, not to this key: a new key on a phone already seen goes on with what it had.
+    const install = /^[A-Za-z0-9_-]{16,64}$/.test(String(body.install ?? '')) ? `i:${body.install}` : `d:${id}`;
+    this.plans.ensure(install);
     const t = this.now();
     const app = body.app && typeof body.app === 'object' ? body.app : {};
     this.q.insert.run(
@@ -140,9 +145,17 @@ export class Devices {
       attest.level || '',
       (attest.reason || '').slice(0, 200),
       attest.boot || '',
+      install,
     );
     this.cache.delete(id);
-    return { device: id, verified: attest.ok };
+    // One key per phone: the app installed again (or registering again) leaves the old key behind.
+    if (install.startsWith('i:')) {
+      for (const old of this.db.prepare('SELECT id FROM devices WHERE install = ? AND id != ?').all(install, id)) {
+        this.db.prepare('DELETE FROM devices WHERE id = ?').run(old.id);
+        this.cache.delete(old.id);
+      }
+    }
+    return { device: id, verified: attest.ok, plan: this.plans.of(install) };
   }
 
   load(id) {
@@ -156,7 +169,9 @@ export class Devices {
       status: row.status,
       attested: row.attested === 1,
       seen: row.last_seen,
+      install: row.install || `d:${id}`,
     };
+    this.plans.ensure(d.install);
     if (this.cache.size >= CACHE_MAX) this.cache.delete(this.cache.keys().next().value);
     this.cache.set(id, d);
     return d;
@@ -192,7 +207,7 @@ export class Devices {
       d.seen = now;
       this.q.seen.run(now, String(req.headers['x-novelo-app'] ?? '').slice(0, 40), id);
     }
-    return { id, request };
+    return { id, request, install: d.install };
   }
 
   setStatus(id, status, note = '') {

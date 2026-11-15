@@ -109,6 +109,40 @@ CREATE TABLE IF NOT EXISTS usage_day(
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS usage_day_day ON usage_day(day);
 
+-- Who has what: decided here, never by what a phone says of itself. An "install" is one phone
+-- (it stays the same when the app is installed again), so a trial doesn't start over.
+CREATE TABLE IF NOT EXISTS installs(
+  id TEXT PRIMARY KEY,
+  created INTEGER NOT NULL,
+  plan TEXT NOT NULL,
+  trial_start INTEGER NOT NULL,
+  note TEXT NOT NULL DEFAULT ''
+) WITHOUT ROWID;
+
+-- The backup in the cloud: what is kept is already encrypted on the phone; here only sizes and dates.
+CREATE TABLE IF NOT EXISTS vaults(
+  id TEXT PRIMARY KEY,
+  auth BLOB NOT NULL,
+  created INTEGER NOT NULL,
+  updated INTEGER NOT NULL,
+  install TEXT NOT NULL,
+  bytes INTEGER NOT NULL DEFAULT 0
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS vault_blobs(
+  vault TEXT NOT NULL,
+  id TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY(vault, id)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS vault_manifests(
+  vault TEXT NOT NULL,
+  id INTEGER NOT NULL,
+  size INTEGER NOT NULL,
+  refs TEXT NOT NULL,
+  PRIMARY KEY(vault, id)
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS events(
   id INTEGER PRIMARY KEY,
   ts INTEGER NOT NULL,
@@ -135,6 +169,15 @@ export const DEFAULTS = {
   // New phones: per address per day, and in all per day.
   register_per_ip_day: 5,
   register_per_day: 3000,
+  // What a phone that registers for the first time gets: 'plus' (Novelo+) or 'trial' (so many days, then
+  // the Novelo's intelligence ends for it and it goes on with its own: on the phone, or its API).
+  new_plan: 'plus',
+  trial_days: 7,
+  // The backup in the cloud (Novelo+): how much one person may keep, how many versions back, and
+  // how much everything may take on this disk (0 = no ceiling besides the disk itself).
+  backup_quota_mb: 5120,
+  backup_keep: 5,
+  backup_total_gb: 0,
   // Everything stops answering (maintenance, or a leak being looked at).
   paused: 0,
   // The last resort: free models of this provider, rotated.
@@ -170,8 +213,15 @@ export function openDb(dataDir, file = 'novelo.db') {
   const db = new DatabaseSync(dataDir === ':memory:' ? ':memory:' : path.join(dataDir, file));
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  migrate(db);
   seed(db);
   return db;
+}
+
+/** Columns that came after the first version. */
+function migrate(db) {
+  const has = (table, column) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  if (!has('devices', 'install')) db.exec("ALTER TABLE devices ADD COLUMN install TEXT NOT NULL DEFAULT ''");
 }
 
 function seed(db) {
