@@ -132,6 +132,7 @@ export class Admin {
     if (x && method === 'DELETE') return this.deleteProvider(Number(x[1]));
     if ((x = m(/^\/api\/providers\/(\d+)\/key$/)) && method === 'PUT') return this.saveKey(Number(x[1]), body);
     if ((x = m(/^\/api\/providers\/(\d+)\/models$/)) && method === 'GET') return this.models(Number(x[1]), query.get('job') ?? '');
+    if ((x = m(/^\/api\/providers\/(\d+)\/test$/)) && method === 'POST') return this.testProvider(Number(x[1]));
     if ((x = m(/^\/api\/jobs\/([a-z][a-z0-9_]*)$/)) && method === 'PUT') return this.saveJob(x[1], body);
     if (method === 'POST' && p === '/api/routes') return this.saveRoute(null, body);
     if ((x = m(/^\/api\/routes\/(\d+)$/)) && method === 'PUT') return this.saveRoute(Number(x[1]), body);
@@ -219,12 +220,43 @@ export class Admin {
       this.modelLists.set(id, kept);
     }
     const needs = (this.router.jobs.get(jobKey)?.accepts ?? 'text').split(',');
+    const rank = (fits) => (fits === true ? 0 : fits === null ? 1 : 2);
     return {
       models: kept.list
-        .filter((m) => needs.every((n) => m.input.includes(n)) && m.output.includes('text'))
-        .sort((a, b) => a.id.localeCompare(b.id))
-        .map((m) => ({ id: m.id, name: m.name, price_in: m.priceIn, price_out: m.priceOut, priced: m.priced, context: m.context })),
+        // Everything that answers in text, with what it takes and can do; whoever chooses decides. Those that fit
+        // this request come first; an API that doesn't say what goes in (Azure) has fits = null.
+        .filter((m) => m.output.includes('text'))
+        .map((m) => ({
+          id: m.id, name: m.name, price_in: m.priceIn, price_out: m.priceOut, priced: m.priced, context: m.context,
+          input: m.anyInput ? null : m.input, params: m.params, lifecycle: m.lifecycle ?? '',
+          fits: m.anyInput ? null : needs.every((n) => m.input.includes(n)),
+        }))
+        .sort((a, b) => rank(a.fits) - rank(b.fits) || a.id.localeCompare(b.id)),
     };
+  }
+
+  /**
+   * Is it connected: the key is there and taken. Lists its models (fresh, kept for the model picker); OpenRouter
+   * lists them to anyone, so there the key itself is asked about.
+   */
+  async testProvider(id) {
+    const p = this.router.providers.get(id);
+    need(p, 'API desconhecida.');
+    const key = this.router.keyOf(p);
+    if (!key) return { ok: false, error: 'Falta a chave.' };
+    const t0 = this.now();
+    this.modelLists.delete(id);
+    try {
+      if (/(^|\.)openrouter\.ai$/i.test(new URL(p.base_url).hostname)) {
+        const res = await this.fetcher(`${p.base_url.replace(/\/+$/, '')}/key`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20_000) });
+        if (!res.ok) return { ok: false, ms: this.now() - t0, error: `HTTP ${res.status}: a OpenRouter recusou a chave.` };
+      }
+      const list = await listModels({ baseUrl: p.base_url, key, headers: p.headers, fetcher: this.fetcher });
+      this.modelLists.set(id, { at: this.now(), list });
+      return { ok: true, ms: this.now() - t0, models: list.length };
+    } catch (e) {
+      return { ok: false, ms: this.now() - t0, error: `${e.status ? `HTTP ${e.status}: ` : ''}${e.message}`.slice(0, 300) };
+    }
   }
 
   listDevices(query) {

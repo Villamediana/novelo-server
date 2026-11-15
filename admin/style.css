@@ -324,6 +324,39 @@ dialog[open] { animation: rise .25s ease both; }
 .login svg { width: 68px; height: 68px; margin: 0 auto 4px; animation: pop .6s cubic-bezier(.2, .7, .2, 1) both; }
 .login input { text-align: center; }
 
+/* ── choosing a model: one search over every connected API ─────────────── */
+.picker { display: grid; gap: 10px; }
+.chosen { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 14px; border-radius: 14px; background: var(--surface-2); }
+.chosen .ico { color: var(--good); stroke-width: 2.4; }
+.chosen b { display: block; font-weight: 800; word-break: break-all; }
+.chosen small { color: var(--ink-3); }
+.options { max-height: min(48vh, 420px); overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); padding: 4px 6px 8px; }
+.group + .group { margin-top: 6px; border-top: 1px solid var(--line); }
+.group-head { position: sticky; top: -4px; z-index: 1; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 10px 8px 6px; background: var(--paper); }
+.group-head b { font: 800 12px/1 Nunito, sans-serif; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-2); }
+.group-head small { color: var(--ink-3); font-size: 12px; }
+.opt { all: unset; box-sizing: border-box; display: grid; gap: 3px; width: 100%; padding: 10px 10px; border-radius: 12px; cursor: pointer; transition: background .12s; }
+.opt:hover { background: var(--surface-2); }
+.opt b { font-weight: 800; font-size: 14.5px; word-break: break-all; }
+.opt small { color: var(--ink-3); font-size: 12.5px; }
+.opt em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--accent); }
+.opt.on { background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
+.opt.nofit { opacity: .62; }
+.opt.custom b { color: var(--accent); }
+.caps { display: flex; flex-wrap: wrap; gap: 4px; }
+.caps i { font-style: normal; font-size: 11.5px; font-weight: 800; padding: 2px 8px; border-radius: 99px; background: var(--surface-2); color: var(--ink-2); }
+.pad { padding: 6px 10px; }
+
+/* ── free models ───────────────────────────────────────────────────────── */
+.card.free { margin-top: 14px; }
+.free-jobs { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
+.chip-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 99px; border: 1.5px solid var(--line); cursor: pointer; font-size: 14px; color: var(--ink-2); transition: background .15s, border-color .15s, color .15s; }
+.chip-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.chip-toggle .ico { width: 18px; height: 18px; }
+.chip-toggle:has(input:checked) { border-color: var(--good); color: var(--ink); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.chip-toggle:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.switch.on-good input:checked + i { background: var(--good); }
+
 /* ── phone: the pages become a tab bar at the bottom ───────────────────── */
 @media (max-width: 760px) {
   .frame { grid-template-columns: minmax(0, 1fr); }
