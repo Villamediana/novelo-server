@@ -6,7 +6,7 @@ import path from 'node:path';
 import { HttpError, readBody, parseJson, sendJson, sendError, clientIp, scheme } from './http.js';
 import { Config, ROOT } from './config.js';
 import { DEFAULTS, event } from './db.js';
-import { chat, listModels, isAzure } from './upstream.js';
+import { chat, listModels, isAzure, isTranscriber, transcribe } from './upstream.js';
 import { merge } from './router.js';
 
 const SESSION = 12 * 3600_000;
@@ -44,9 +44,28 @@ const amount = (v, name) => {
   return n;
 };
 
+/** Half a second of silence, as a WAV (16 kHz, mono, 16 bits): what a transcription model is tested with. */
+function silence() {
+  const data = Buffer.alloc(16000);
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0);
+  h.writeUInt32LE(36 + data.length, 4);
+  h.write('WAVEfmt ', 8);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(16000, 24);
+  h.writeUInt32LE(32000, 28);
+  h.writeUInt16LE(2, 32);
+  h.writeUInt16LE(16, 34);
+  h.write('data', 36);
+  h.writeUInt32LE(data.length, 40);
+  return Buffer.concat([h, data]);
+}
+
 export class Admin {
-  constructor({ db, config, settings, devices, limits, router, telemetry, plans, secret, fetcher = fetch, now = Date.now }) {
-    Object.assign(this, { db, config, settings, devices, limits, router, telemetry, plans, secret, fetcher, now });
+  constructor({ db, config, settings, devices, limits, router, telemetry, plans, budget, secret, fetcher = fetch, now = Date.now }) {
+    Object.assign(this, { db, config, settings, devices, limits, router, telemetry, plans, budget, secret, fetcher, now });
     this.trust = config.get('TRUST_PROXY', 'none');
     this.httpsOnly = config.get('REQUIRE_HTTPS', '1') !== '0';
     this.fails = new Map();
@@ -207,6 +226,8 @@ export class Admin {
       live,
       // The same answer /health gives: which of the requests has something able to answer now.
       ready: this.router.ready(),
+      // The ceilings worked out from the Novelo+ price (applied when budget_auto is on).
+      budget: this.budget?.preview() ?? null,
     };
   }
 
@@ -225,11 +246,12 @@ export class Admin {
       models: kept.list
         // Everything that answers in text, with what it takes and can do; whoever chooses decides. Those that fit
         // this request come first; an API that doesn't say what goes in (Azure) has fits = null.
-        .filter((m) => m.output.includes('text'))
+        // Transcription models only hear (the server sends them the recording by their own door).
+        .filter((m) => m.output.includes('text') && (m.kind !== 'transcribe' || jobKey === 'hear'))
         .map((m) => ({
           id: m.id, name: m.name, price_in: m.priceIn, price_out: m.priceOut, priced: m.priced, context: m.context,
-          input: m.anyInput ? null : m.input, params: m.params, lifecycle: m.lifecycle ?? '',
-          fits: m.anyInput ? null : needs.every((n) => m.input.includes(n)),
+          input: m.anyInput ? null : m.input, params: m.params, lifecycle: m.lifecycle ?? '', kind: m.kind ?? 'chat',
+          fits: m.kind === 'transcribe' ? true : m.anyInput ? null : needs.every((n) => m.input.includes(n)),
         }))
         .sort((a, b) => rank(a.fits) - rank(b.fits) || a.id.localeCompare(b.id)),
     };
@@ -282,11 +304,13 @@ export class Admin {
 
   // ── writing ────────────────────────────────────────────────────────────────
 
-  saveSettings(body) {
+  async saveSettings(body) {
     for (const [k, v] of Object.entries(body)) {
       need(k in DEFAULTS, `Ajuste desconhecido: ${k}`);
       if (k === 'attestation') need(['off', 'observe', 'require'].includes(v), 'Verificação: off, observe ou require.');
       if (k === 'new_plan') need(['plus', 'trial'].includes(v), 'Novos aparelhos: plus ou trial.');
+      if (k === 'store_fee_pct' || k === 'margin_pct') need(Number(v) >= 0 && Number(v) < 100, 'Porcentagem: de 0 a 99.');
+      if (k === 'usd_brl') need(Number(v) > 0, 'Dólar: maior que zero.');
       if (k === 'timezone') {
         try {
           new Intl.DateTimeFormat('en', { timeZone: String(v) });
@@ -300,6 +324,9 @@ export class Admin {
         need(false, e.message);
       }
     }
+    // Automatic ceilings follow at once (and the dollar, when the switch was just turned on).
+    this.budget?.apply();
+    if (body.budget_auto || body.usd_auto) await this.budget?.refreshRate({ force: true });
     if ('paused' in body) event(this.db, 'servidor', body.paused ? 'Pausado pelo painel.' : 'Retomado pelo painel.');
     this.telemetry.flush();
     this.limits.loadSpent();
@@ -429,7 +456,10 @@ export class Admin {
     const t0 = this.now();
     try {
       const body = merge(merge({ model: r.model, stream: false, max_tokens: 2000, messages: [{ role: 'user', content: 'Responda só com a palavra: ok' }] }, p.extra), r.extra);
-      const out = await chat({ baseUrl: p.base_url, key: this.router.keyOf(p), headers: p.headers, body, timeoutMs: 60_000, fetcher: this.fetcher });
+      // A transcription model is tried with half a second of silence (it should hear nothing: "-").
+      const out = isTranscriber(r.model)
+        ? await transcribe({ baseUrl: p.base_url, key: this.router.keyOf(p), headers: p.headers, model: r.model, audio: { data: silence().toString('base64'), format: 'wav' }, timeoutMs: 60_000, fetcher: this.fetcher })
+        : await chat({ baseUrl: p.base_url, key: this.router.keyOf(p), headers: p.headers, body, timeoutMs: 60_000, fetcher: this.fetcher });
       const cost = out.cost ?? (out.tokensIn * r.price_in + out.tokensOut * r.price_out) / 1e6;
       return { ok: true, ms: this.now() - t0, text: out.text.trim().slice(0, 120), tokens_in: out.tokensIn, tokens_out: out.tokensOut, cost };
     } catch (e) {
@@ -463,6 +493,7 @@ export class Admin {
       const install = d.install || `d:${id}`;
       this.plans.ensure(install);
       this.plans.set(install, b.plan);
+      this.budget?.apply();
     }
     return { ok: true };
   }

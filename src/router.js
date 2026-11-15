@@ -2,10 +2,18 @@
 // or failing, that model steps aside and the request goes on to the next, and back when they
 // return — until an answer comes or the job's waiting time ends. When every model configured is
 // out (or the money for the day is), the free ones are tried, if the job allows it.
-import { chat, UpstreamError } from './upstream.js';
+import { chat, transcribe, isTranscriber, UpstreamError } from './upstream.js';
 import { Dispatcher, Lane } from './lanes.js';
 import { FreePool, REST } from './free.js';
 import { event } from './db.js';
+
+/** The recording inside a chat request (the first input_audio part), or null. */
+export function audioOf(body) {
+  for (const m of body?.messages ?? []) {
+    for (const p of Array.isArray(m?.content) ? m.content : []) if (p?.type === 'input_audio' && p.input_audio?.data) return p.input_audio;
+  }
+  return null;
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const parse = (text) => {
@@ -105,6 +113,13 @@ export class Router {
   }
 
   async call(route, provider, body, timeoutMs) {
+    // A transcription model hears the recording by its own door; the app asked for exactly the words.
+    if (isTranscriber(route.model)) {
+      const audio = audioOf(body);
+      if (!audio) throw new UpstreamError('refused', 400, 'modelo de transcrição: o pedido não tem áudio');
+      const r = await transcribe({ baseUrl: provider.base_url, key: this.keyOf(provider), headers: provider.headers, model: route.model, audio, timeoutMs, fetcher: this.fetcher });
+      return { ...r, cost: (r.tokensIn * route.price_in + r.tokensOut * route.price_out) / 1e6 };
+    }
     const full = merge(merge({ ...body, model: route.model, stream: false }, provider.extra), route.extra);
     const r = await chat({ baseUrl: provider.base_url, key: this.keyOf(provider), headers: provider.headers, body: full, timeoutMs, fetcher: this.fetcher });
     const cost = r.cost ?? (r.tokensIn * route.price_in + r.tokensOut * route.price_out) / 1e6;
