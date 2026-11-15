@@ -19,13 +19,13 @@ export class Telemetry {
     this.bads = [];
     this.rings = new Map(); // job → recent total times of the good ones
     this.q = {
-      row: db.prepare(`INSERT INTO requests(ts,device,job,provider,model,free,ok,code,attempts,queue_ms,upstream_ms,total_ms,tokens_in,tokens_out,cost,bytes_in,bytes_out)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`),
-      hour: db.prepare(`INSERT INTO agg_hour(hour,job,model,requests,errors,bad,retries,tokens_in,tokens_out,cost,ms_sum,queue_ms_sum)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+      row: db.prepare(`INSERT INTO requests(ts,device,job,provider,model,free,ok,code,attempts,queue_ms,upstream_ms,total_ms,tokens_in,tokens_out,tokens_cached,cost,bytes_in,bytes_out)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`),
+      hour: db.prepare(`INSERT INTO agg_hour(hour,job,model,requests,errors,bad,retries,tokens_in,tokens_out,tokens_cached,cost,ms_sum,queue_ms_sum)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(hour,job,model) DO UPDATE SET requests=requests+excluded.requests, errors=errors+excluded.errors, bad=bad+excluded.bad,
           retries=retries+excluded.retries, tokens_in=tokens_in+excluded.tokens_in, tokens_out=tokens_out+excluded.tokens_out,
-          cost=cost+excluded.cost, ms_sum=ms_sum+excluded.ms_sum, queue_ms_sum=queue_ms_sum+excluded.queue_ms_sum`),
+          tokens_cached=tokens_cached+excluded.tokens_cached, cost=cost+excluded.cost, ms_sum=ms_sum+excluded.ms_sum, queue_ms_sum=queue_ms_sum+excluded.queue_ms_sum`),
     };
   }
 
@@ -53,10 +53,10 @@ export class Telemetry {
     this.bads = [];
     tx(this.db, () => {
       for (const r of rows) {
-        this.q.row.run(r.ts, r.device, r.job, r.provider, r.model, r.free ? 1 : 0, r.ok ? 1 : 0, r.code, r.attempts, r.queueMs, r.upstreamMs, r.totalMs, r.tokensIn, r.tokensOut, r.cost, r.bytesIn, r.bytesOut);
-        this.q.hour.run(Math.floor(r.ts / HOUR), r.job, r.model || '—', 1, r.ok ? 0 : 1, 0, Math.max(0, r.attempts - 1), r.tokensIn, r.tokensOut, r.cost, r.ok ? r.totalMs : 0, r.queueMs);
+        this.q.row.run(r.ts, r.device, r.job, r.provider, r.model, r.free ? 1 : 0, r.ok ? 1 : 0, r.code, r.attempts, r.queueMs, r.upstreamMs, r.totalMs, r.tokensIn, r.tokensOut, r.tokensCached || 0, r.cost, r.bytesIn, r.bytesOut);
+        this.q.hour.run(Math.floor(r.ts / HOUR), r.job, r.model || '—', 1, r.ok ? 0 : 1, 0, Math.max(0, r.attempts - 1), r.tokensIn, r.tokensOut, r.tokensCached || 0, r.cost, r.ok ? r.totalMs : 0, r.queueMs);
       }
-      for (const b of bads) this.q.hour.run(Math.floor(b.ts / HOUR), b.job, b.model, 0, 0, 1, 0, 0, 0, 0, 0, 0);
+      for (const b of bads) this.q.hour.run(Math.floor(b.ts / HOUR), b.job, b.model, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
     });
   }
 
@@ -71,7 +71,7 @@ export class Telemetry {
     const now = this.now();
     const from = Math.floor(now / HOUR) - hours + 1;
     const rows = this.db.prepare('SELECT * FROM agg_hour WHERE hour >= ? ORDER BY hour').all(from);
-    const zero = () => ({ requests: 0, errors: 0, bad: 0, retries: 0, tokens_in: 0, tokens_out: 0, cost: 0, ms_sum: 0, queue_ms_sum: 0 });
+    const zero = () => ({ requests: 0, errors: 0, bad: 0, retries: 0, tokens_in: 0, tokens_out: 0, tokens_cached: 0, cost: 0, ms_sum: 0, queue_ms_sum: 0 });
     const add = (a, r) => {
       for (const k of Object.keys(a)) if (typeof a[k] === 'number' && k in r) a[k] += r[k];
     };

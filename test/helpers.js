@@ -35,7 +35,7 @@ export async function fakeUpstream(script) {
       if (r.delay) await sleep(r.delay);
       const status = r.status ?? 200;
       const body = r.body ?? (status === 200
-        ? { choices: [{ message: { role: 'assistant', content: r.text ?? 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 20, ...(r.cost !== undefined ? { cost: r.cost } : {}) } }
+        ? { choices: [{ message: { role: 'assistant', content: r.text ?? 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 20, ...(r.cost !== undefined ? { cost: r.cost } : {}), ...(r.cached !== undefined ? { prompt_tokens_details: { cached_tokens: r.cached } } : {}) } }
         : { error: { message: r.message ?? `erro ${status}` } });
       res.writeHead(status, { 'Content-Type': 'application/json', ...(r.headers ?? {}) }).end(JSON.stringify(body));
     });

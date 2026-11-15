@@ -547,3 +547,46 @@ test('a parameter the model doesn\'t take is renamed or left out as the API says
   // A 400 about something else is not retried.
   await assert.rejects(chat({ baseUrl: base, key: 'k', body: { model: 'outro', messages: [], max_tokens: 1 }, fetcher: async () => new Response('{"error":{"message":"bad request"}}', { status: 400 }) }));
 });
+
+test('see takes nine photos in one request (~1.5 MB), each after its "n:", and the JSON comes back', async () => {
+  const s = await setup(() => ({ text: '{"1":"a","2":"b"}', cached: 64 }));
+  try {
+    s.server.route('see', 'openai/gpt-6-luna');
+    const jpeg = (i) => `data:image/jpeg;base64,${Buffer.alloc(120_000, i).toString('base64')}`;
+    const content = [];
+    for (let i = 1; i <= 9; i++) content.push({ type: 'text', text: `${i}:` }, { type: 'image_url', image_url: { url: jpeg(i), detail: 'low' } });
+    const body = { messages: [{ role: 'system', content: 'Descreva cada foto. JSON {"1": …}.' }, { role: 'user', content }], response_format: { type: 'json_object' } };
+    assert.ok(JSON.stringify(body).length > 1.4e6);
+    const r = await s.phone.ask('see', body);
+    assert.equal(r.status, 200);
+    assert.equal(r.json.choices[0].message.content, '{"1":"a","2":"b"}');
+    const sent = s.upstream.calls.at(-1).json;
+    assert.equal(sent.messages[1].content.length, 18);
+    assert.equal(sent.messages[1].content.filter((p) => p.type === 'image_url').length, 9);
+    assert.equal(sent.messages[1].content[16].text, '9:');
+    assert.deepEqual(sent.response_format, { type: 'json_object' });
+    // The tokens the model had in its cache are counted.
+    s.server.app.flush();
+    assert.equal(s.server.app.db.prepare('SELECT tokens_cached FROM requests').get().tokens_cached, 64);
+    assert.equal(s.server.app.db.prepare("SELECT SUM(tokens_cached) n FROM agg_hour WHERE job = 'see'").get().n, 64);
+  } finally {
+    await s.close();
+  }
+});
+
+test('Anthropic and Gemini through OpenRouter get the system message marked for the cache; the rest as is', async () => {
+  const { markCache } = await import('../src/router.js');
+  const msgs = [{ role: 'system', content: 'instruções fixas' }, { role: 'user', content: 'oi' }];
+  const marked = markCache('https://openrouter.ai/api/v1', 'anthropic/claude-sonnet-5-5', msgs);
+  assert.deepEqual(marked[0].content, [{ type: 'text', text: 'instruções fixas', cache_control: { type: 'ephemeral' } }]);
+  assert.equal(marked[1], msgs[1]);
+  assert.equal(msgs[0].content, 'instruções fixas');
+  assert.equal(markCache('https://openrouter.ai/api/v1', 'google/gemini-3-flash', msgs)[0].content[0].cache_control.type, 'ephemeral');
+  // Others cache the prefix by themselves; elsewhere, not OpenRouter's way.
+  assert.equal(markCache('https://openrouter.ai/api/v1', 'openai/gpt-6-luna', msgs), msgs);
+  assert.equal(markCache('https://openrouter.ai/api/v1', 'google/gemma-4', msgs), msgs);
+  assert.equal(markCache('https://r.openai.azure.com/openai/v1', 'anthropic/x', msgs), msgs);
+  // Already marked by the app: left alone.
+  const own = [{ role: 'system', content: [{ type: 'text', text: 'x', cache_control: { type: 'ephemeral' } }] }];
+  assert.equal(markCache('https://openrouter.ai/api/v1', 'anthropic/x', own), own);
+});

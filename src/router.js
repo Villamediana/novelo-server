@@ -7,6 +7,26 @@ import { Dispatcher, Lane } from './lanes.js';
 import { FreePool, REST } from './free.js';
 import { event } from './db.js';
 
+/**
+ * Anthropic and Gemini models through OpenRouter keep a prompt's prefix only when asked (cache_control); the others
+ * do it by themselves. The system message (the fixed instructions, always first) is marked, turned into parts.
+ */
+export function markCache(baseUrl, model, messages) {
+  let host = '';
+  try {
+    host = new URL(baseUrl).hostname;
+  } catch { /* no address, no mark */ }
+  if (!/(^|\.)openrouter\.ai$/i.test(host) || !/^(anthropic\/|google\/gemini)/i.test(String(model)) || !Array.isArray(messages)) return messages;
+  const i = messages.findIndex((m) => m.role === 'system' || m.role === 'developer');
+  if (i < 0) return messages;
+  const m = messages[i];
+  const parts = typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : (Array.isArray(m.content) ? m.content : []).map((p) => ({ ...p }));
+  const last = parts.map((p) => p.type).lastIndexOf('text');
+  if (last < 0 || parts.some((p) => p.cache_control)) return messages;
+  parts[last] = { ...parts[last], cache_control: { type: 'ephemeral' } };
+  return messages.map((x, k) => (k === i ? { ...m, content: parts } : x));
+}
+
 /** The recording inside a chat request (the first input_audio part), or null. */
 export function audioOf(body) {
   for (const m of body?.messages ?? []) {
@@ -121,6 +141,7 @@ export class Router {
       return { ...r, cost: (r.tokensIn * route.price_in + r.tokensOut * route.price_out) / 1e6 };
     }
     const full = merge(merge({ ...body, model: route.model, stream: false }, provider.extra), route.extra);
+    full.messages = markCache(provider.base_url, route.model, full.messages);
     const r = await chat({ baseUrl: provider.base_url, key: this.keyOf(provider), headers: provider.headers, body: full, timeoutMs, fetcher: this.fetcher });
     const cost = r.cost ?? (r.tokensIn * route.price_in + r.tokensOut * route.price_out) / 1e6;
     return { ...r, cost };
@@ -140,7 +161,7 @@ export class Router {
       if (/^r\d+$/.test(mark)) exclude.add(Number(mark.slice(1)));
       else if (mark.startsWith('f:')) freeNot.add(mark.slice(2));
     }
-    const out = { ok: false, code: 'busy', message: '', route: '', provider: '', model: '', free: false, attempts: 0, queueMs: 0, upstreamMs: 0, tokensIn: 0, tokensOut: 0, cost: 0 };
+    const out = { ok: false, code: 'busy', message: '', route: '', provider: '', model: '', free: false, attempts: 0, queueMs: 0, upstreamMs: 0, tokensIn: 0, tokensOut: 0, tokensCached: 0, cost: 0 };
     let refused = null;
     let last = null;
 
@@ -169,7 +190,7 @@ export class Router {
           const r = await this.call(route, provider, body, Math.max(5000, Math.min(route.timeout_s * 1000, left)));
           lease.lane.success();
           out.upstreamMs += this.now() - t0;
-          return { ...out, ok: true, code: '', text: r.text, route: `r${route.id}`, provider: provider.name, model: route.model, tokensIn: r.tokensIn, tokensOut: r.tokensOut, cost: r.cost };
+          return { ...out, ok: true, code: '', text: r.text, route: `r${route.id}`, provider: provider.name, model: route.model, tokensIn: r.tokensIn, tokensOut: r.tokensOut, tokensCached: r.tokensCached || 0, cost: r.cost };
         } catch (e) {
           out.upstreamMs += this.now() - t0;
           const err = e instanceof UpstreamError ? e : new UpstreamError('server', 0, String(e?.message ?? e));
@@ -243,7 +264,7 @@ export class Router {
         this.free.good(job.key, m.id);
         this.freeLane.success();
         out.upstreamMs += this.now() - t0;
-        return { ...out, ok: true, code: '', text: r.text, route: `f:${m.id}`, provider: p.name, model: m.id, free: true, tokensIn: r.tokensIn, tokensOut: r.tokensOut, cost: r.cost ?? 0 };
+        return { ...out, ok: true, code: '', text: r.text, route: `f:${m.id}`, provider: p.name, model: m.id, free: true, tokensIn: r.tokensIn, tokensOut: r.tokensOut, tokensCached: r.tokensCached || 0, cost: r.cost ?? 0 };
       } catch (e) {
         out.upstreamMs += this.now() - t0;
         const kind = e?.kind ?? 'server';
