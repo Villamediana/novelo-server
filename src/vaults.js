@@ -105,8 +105,8 @@ export class Vaults {
   }
 
   /** Which of [ids] are not here yet. */
-  missing(v, ids) {
-    if (!Array.isArray(ids) || ids.length > 20_000 || ids.some((i) => !BLOB_ID.test(i))) throw new HttpError(422, 'bad_request', 'Lista inválida.');
+  missing(v, ids, max = 20_000) {
+    if (!Array.isArray(ids) || ids.length > max || ids.some((i) => !BLOB_ID.test(i))) throw new HttpError(422, 'bad_request', 'Lista inválida.');
     const has = this.db.prepare('SELECT 1 x FROM vault_blobs WHERE vault = ? AND id = ?');
     return ids.filter((i) => !has.get(v.id, i));
   }
@@ -140,7 +140,8 @@ export class Vaults {
    */
   putManifest(v, data, refs) {
     if (!data.length || data.length > MANIFEST_MAX) throw new HttpError(413, 'too_large', 'Índice grande demais.');
-    const lacking = this.missing(v, refs);
+    // A version may be made of many pieces (years of photos): far more than one "have" asks about at once.
+    const lacking = this.missing(v, refs, 200_000);
     if (lacking.length) throw new HttpError(409, 'missing', 'Faltam pedaços.', { missing: lacking.slice(0, 1000) });
     this.room(v, data.length);
     const last = this.db.prepare('SELECT COALESCE(MAX(id),0) m FROM vault_manifests WHERE vault = ?').get(v.id).m;

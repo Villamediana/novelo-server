@@ -6,6 +6,7 @@ import { HttpError, readBody, parseJson, sendJson, sendError, clientIp } from '.
 import { BLOB_MAX, MANIFEST_MAX } from './vaults.js';
 
 const HEARTBEAT = 10_000;
+const BACKUP_PER_MINUTE = 6000;
 const KEEP_DONE = 10 * 60_000;
 const KEEP_BYTES = 64 * 1024 * 1024;
 const ROLES = new Set(['system', 'developer', 'user', 'assistant']);
@@ -173,7 +174,8 @@ export class Api {
       const now = this.now();
       let c = this.carries.get(who.id);
       if (!c || now - c.start > 60_000) this.carries.set(who.id, (c = { start: now, n: 0 }));
-      if (++c.n > 1200) throw new HttpError(429, 'rate_limited', 'Muitos pedidos em pouco tempo.', { retry_after: 60 });
+      // A first backup or a restore is thousands of pieces in a row: room for that, not for a flood.
+      if (++c.n > BACKUP_PER_MINUTE) throw new HttpError(429, 'rate_limited', 'Muitos pedidos em pouco tempo.', { retry_after: Math.max(1, Math.ceil((c.start + 60_000 - now) / 1000)) });
       const token = req.headers['x-novelo-vault'];
       const writes = m === 'PUT' || m === 'POST';
       if (writes && !this.plans.of(who.install).backup) throw new HttpError(402, 'plan', 'O backup na nuvem é do Novelo+.', { plan: this.plans.of(who.install) });
