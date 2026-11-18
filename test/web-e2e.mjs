@@ -266,6 +266,100 @@ try {
   // ...and what the phone wrote meanwhile is still there: nothing written on the page was lost.
   assert.ok((await latest()).some((r) => r.t === 'entries' && r.id === '2' && r.r.status === 'done'));
 
+  // ---- the search finds what was written (and the photo's note)
+  await page.click('button.nav:has-text("Hoje")');
+  await page.fill('input[type=search]', 'recibo');
+  await page.waitForSelector('.card:has-text("Recibo do mercado")');
+  await shot(page, '10f-search');
+  await page.fill('input[type=search]', '');
+
+  // ---- a note made by hand: written, it reaches the phone; one left empty is dropped
+  await page.click('button.nav:has-text("Notas")');
+  await page.click('button:has-text("Nova nota")');
+  await page.waitForSelector('.panel .title-edit');
+  await page.keyboard.press('Escape');
+  await page.click('button:has-text("Nova nota")');
+  await page.fill('.panel .title-edit', 'Lista de compras');
+  await page.fill('.panel .body-edit', 'pão, leite, café');
+  await page.keyboard.press('Escape');
+  const list = await until('a nota nova', (rs) => rs.find((r) => r.t === 'entries' && r.r.title === 'Lista de compras'));
+  assert.equal(list.r.body, 'pão, leite, café');
+  assert.equal(list.r.kind, 'note');
+  await sleep(800);
+  assert.ok(!(await latest()).some((r) => r.t === 'entries' && r.r.kind === 'note' && r.r.title === '' && r.r.body === ''), 'the empty one was dropped');
+
+  // ---- a task's due day set by hand
+  await page.click('button.nav:has-text("Tarefas")');
+  await page.click('text=Fechar contrato da torre de Campinas');
+  await page.waitForSelector('.panel .title-edit');
+  const due = new Date(now + 5 * day).toLocaleDateString('sv-SE', { timeZone: zone });
+  await page.fill('.panel input[type=date]', due);
+  await page.keyboard.press('Escape');
+  await until('o prazo novo', (rs) => rs.find((r) => r.t === 'entries' && r.id === '1' && new Date(r.r.dueAt).toLocaleDateString('sv-SE', { timeZone: zone }) === due && r.r.dueHasTime === 0));
+
+  // ---- a medicine made by hand
+  await page.click('button.nav:has-text("Remédios")');
+  await page.click('button:has-text("Novo remédio")');
+  await page.fill('.panel .title-edit', 'Vitamina D');
+  await page.locator('.panel label:has-text("Horários") input').fill('9h, 21:00');
+  // Esc closes it, and what was being typed is kept.
+  await page.keyboard.press('Escape');
+  const vit = await until('o remédio novo', (rs) => rs.find((r) => r.t === 'meds' && r.r.name === 'Vitamina D' && r.r.times === '["09:00","21:00"]'));
+  assert.ok(Number(vit.id) >= 2 ** 45);
+  await page.waitForSelector('.card:has-text("Vitamina D")');
+
+  // ---- a second tab: only one works at a time ("Usar aqui" takes it over)
+  const tab2 = await ctx.newPage();
+  await tab2.goto(`${server.url}/web/`);
+  await tab2.waitForSelector('text=O Novelo está aberto em outra aba');
+  await shot(tab2, '10d-other-tab');
+  await tab2.click('button:has-text("Usar aqui")');
+  await tab2.waitForSelector('.rail', { timeout: 20_000 });
+  await page.waitForSelector('text=O Novelo está aberto em outra aba', { timeout: 20_000 });
+  await page.click('button:has-text("Usar aqui")');
+  await page.waitForSelector('.rail', { timeout: 20_000 });
+  await tab2.waitForSelector('text=O Novelo está aberto em outra aba', { timeout: 20_000 });
+  await tab2.close();
+
+  // ---- someone else's computer: nothing kept in it, and closing the tab unlinks it
+  const pub2 = await browser.newContext({ viewport: { width: 1360, height: 860 }, timezoneId: zone, locale: 'pt-BR' });
+  const lib = await pub2.newPage();
+  await lib.goto(`${server.url}/web/`);
+  await lib.waitForSelector('.qr svg');
+  await lib.uncheck('.keep input');
+  const code2 = await lib.locator('.qr').getAttribute('data-code');
+  const [, id2, pubKey2, secret2] = /#([^.]+)\.([^.]+)\.([^.]+)$/.exec(code2);
+  const wrapped2 = await lock.wrapLink(pubKey2, id2, secret2, { space, key: master, owner: 'Pixel da Ana' });
+  assert.equal((await signed(phone, 'POST', `/v1/link/${id2}/approve`, { wrapped: wrapped2, owner: 'Pixel da Ana' })).status, 200);
+  await lib.waitForSelector('.rail', { timeout: 20_000 });
+  await lib.waitForSelector('.shared-note');
+  await lib.click('button.nav:has-text("Notas")');
+  await lib.waitForSelector('text=Aniversário da Ana: piquenique', { timeout: 20_000 });
+  await shot(lib, '10e-shared');
+  const keptThere = await lib.evaluate(() => new Promise((resolve) => {
+    const r = indexedDB.open('novelo-web');
+    r.onsuccess = () => {
+      const db = r.result;
+      const names = [...db.objectStoreNames];
+      if (!names.length) return resolve(0);
+      const tx = db.transaction(names, 'readonly');
+      let n = 0;
+      names.forEach((name) => { const q = tx.objectStore(name).count(); q.onsuccess = () => { n += q.result; }; });
+      tx.oncomplete = () => resolve(n);
+      return undefined;
+    };
+  }));
+  assert.equal(keptThere, 0, 'nothing kept in that browser');
+  assert.equal((await signed(phone, 'GET', '/v1/links')).json.links.length, 2);
+  await lib.close({ runBeforeUnload: true });
+  let gone = false;
+  for (let i = 0; i < 40 && !gone; i++) {
+    await sleep(250);
+    gone = (await signed(phone, 'GET', '/v1/links')).json.links.length === 1;
+  }
+  assert.ok(gone, 'closing the tab unlinked that computer');
+  await pub2.close();
+
   // ---- dark
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.reload();

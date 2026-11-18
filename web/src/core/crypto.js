@@ -139,6 +139,15 @@ async function linkLock(privateKey, peerPubRaw, linkId, secret) {
   return subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: te.encode(linkId), info: LINK_INFO }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 
+/**
+ * The key that signs each of this computer's requests (ECDSA P-256): the private half can't be read
+ * out of the browser; the public half (raw, base64url) goes to the server when the code is made.
+ */
+export async function proofKeys() {
+  const pair = await subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+  return { privateKey: pair.privateKey, pub: b64u.enc(new Uint8Array(await subtle.exportKey('raw', pair.publicKey))) };
+}
+
 /** The phone's answer opened: { space, key (Uint8Array 32), owner }. */
 export async function unwrapLink(privateKey, linkId, secret, wrapped) {
   const lock = await linkLock(privateKey, b64u.dec(wrapped.pub), linkId, secret);

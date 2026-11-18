@@ -17,10 +17,11 @@ servidor do Novelo em nome do celular (o plano e os limites são dele).
 
 ## Ligar um computador (QR code)
 
-1. O computador cria um par de chaves ECDH P-256 (a privada nunca sai do navegador, nem pode ser lida)
-   e um **segredo do código** (16 bytes aleatórios), e pede um código:
-   `POST /v1/link {key: <pública, 65 bytes raw, base64url>, name: "Chrome no Windows"}` →
-   `{id, poll, expires_in}`. O segredo **não** vai pro servidor.
+1. O computador cria um par de chaves ECDH P-256 (a privada nunca sai do navegador, nem pode ser lida),
+   um **segredo do código** (16 bytes aleatórios) e a **chave que vai assinar cada pedido dele** (ECDSA
+   P-256, a privada também não extraível), e pede um código:
+   `POST /v1/link {key: <pública ECDH, 65 bytes raw, base64url>, proof: <pública ECDSA, idem>, name:
+   "Chrome no Windows"}` → `{id, poll, expires_in}`. O segredo **não** vai pro servidor.
 2. Mostra o QR code de `https://novelo.simplyonegoal.com/web/link#<id>.<pública>.<segredo>` e espera:
    `GET /v1/link/<id>?wait=25` com o `poll` no cabeçalho `X-Novelo-Poll` (nunca no endereço: endereços
    ficam em logs pelo caminho). Espera longa; `pending` até o celular ler.
@@ -46,7 +47,19 @@ resposta, ela fica lá no máximo 10 minutos (depois disso, some com o código).
 Desligar: no celular, `DELETE /v1/links/<id>` (a lista: `GET /v1/links`); no computador, `DELETE /v1/link`.
 Desligado, o token dá `401 unlinked` e a página apaga o banco inteiro do navegador (registros,
 arquivos, chaves, token, rascunho) e avisa as outras abertas (BroadcastChannel). Um computador sem
-usar há 90 dias (`SYNC_IDLE_DAYS`) é desligado sozinho.
+usar há 90 dias (`SYNC_IDLE_DAYS`) é desligado sozinho; um que buscou a resposta e nunca a usou (ela se
+perdeu no caminho), depois de 10 minutos.
+
+**Computador de outra pessoa** ("Manter ligado neste computador" desmarcado na página do código): nada
+vai pro IndexedDB — chaves, token, registros e rascunho ficam só na memória da aba. A página avisa o
+servidor (`POST /v1/link/shared`) e, ao fechar ou recarregar a aba, manda `DELETE /v1/link` com
+`keepalive` (assinado de antemão, a cada minuto). Se esse aviso não chegar, o servidor desliga sozinho
+depois de 30 minutos sem sinal (`SYNC_SHARED_IDLE_MIN`). No celular ele aparece com "só enquanto a aba
+estiver aberta".
+
+**Uma aba de cada vez**: com o computador ligado, só uma aba trabalha (Web Locks); outra mostra "O
+Novelo está aberto em outra aba" e "Usar aqui" (que toma a vez; a outra recarrega e passa a mostrar o
+mesmo). Assim nada é organizado duas vezes nem o mesmo banco é escrito por duas abas.
 
 ## Cifra (a mesma no Kotlin e no JS)
 
@@ -100,7 +113,16 @@ item→captura, os resultados guardados numa captura) não precisam ser traduzid
 - `GET /v1/web/me` (computador) → `{plan, link, name}`. `POST /v1/web/ask/<think|see>` (computador,
   com `X-Novelo-Request`): o mesmo pedido do app, em nome do celular.
 
-Celular: pedidos assinados como os outros (só o caminho é assinado; `?since=` não). Computador: token.
+Celular: pedidos assinados como os outros (só o caminho é assinado; `?since=` não).
+
+Computador: o token **e** a assinatura de cada pedido, `X-Novelo-Sig: <ms>.<nonce>.<ECDSA>` sobre
+`novelo-web-v1\n<método>\n<caminho com ?…>\n<ms>\n<nonce>\n<SHA-256 do corpo em hex>`, com a chave
+que só o navegador dele tem. Fora de ±2 min da hora do servidor, com outra chave, outro caminho, outro
+corpo ou o mesmo nonce de novo: `401 bad_proof` (que não faz a página apagar nada; com o relógio
+errado, ela acerta pela hora que o servidor manda e assina de novo). Um token vazado sozinho não serve.
+
+As novidades vêm em páginas de no máximo ~4 MB (`more: true` pro resto), mesmo com `limit` alto.
+O que vem da sincronização tem `Cross-Origin-Resource-Policy: same-origin`.
 
 Teto por espaço: 256 MB de registros, 8 GB de arquivos (`SYNC_RECORDS_MB`, `SYNC_FILES_MB`), 40 MB por
 arquivo (`SYNC_FILE_MB`), 10 computadores, 600 pedidos por minuto (contados antes de ler o corpo).

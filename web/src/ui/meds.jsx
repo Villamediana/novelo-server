@@ -1,6 +1,6 @@
 // Remédios: each medicine with its times and today's doses (ticked here, they are ticked on the phone),
 // and its page to set it by hand.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as T from '../core/time.js';
 import * as D from '../core/doses.js';
 import { Check, Icon, IconBtn, useApp, useData, hm, toInput } from './kit.jsx';
@@ -67,12 +67,22 @@ export function MedPanel({ id, fresh, onClose }) {
   const { t, zone } = app;
   const m = data.med(id);
   const [times, setTimes] = useState(() => (m ? D.times(m).map(T.hhmm).join(', ') : ''));
+  // Esc closes it, as an item's panel (what is being typed is kept first).
+  useEffect(() => {
+    const key = (ev) => {
+      if (ev.key !== 'Escape') return;
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      close();
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  });
   if (!m) return null;
   const save = (patch) => app.library.saveMed({ ...m, ...patch });
-  const close = () => {
+  function close() {
     app.library.dropMedIfEmpty(id);
     onClose();
-  };
+  }
   return (
     <>
       <div className="scrim" onClick={close} />
