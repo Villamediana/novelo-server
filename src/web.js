@@ -92,7 +92,7 @@ export class WebPages {
       return res.end(body);
     }
     if (req.headers['if-none-match'] === file.etag) {
-      res.writeHead(304, { ...HEADERS, ETag: file.etag, 'Cache-Control': 'no-cache' });
+      res.writeHead(304, { ...HEADERS, ETag: file.etag, 'Cache-Control': 'no-cache, no-transform' });
       return res.end();
     }
     res.writeHead(200, {
@@ -101,7 +101,8 @@ export class WebPages {
       'Content-Length': file.bytes.length,
       ETag: file.etag,
       // Always asked again (a 304 when it didn't change): a new version reaches everyone at once.
-      'Cache-Control': 'no-cache',
+      // no-transform: nothing on the way changes the page (no script put in by a proxy or CDN).
+      'Cache-Control': 'no-cache, no-transform',
     });
     return res.end(req.method === 'HEAD' ? undefined : file.bytes);
   }
