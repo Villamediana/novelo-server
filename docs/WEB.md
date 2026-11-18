@@ -133,6 +133,13 @@ por minuto por endereço. O pedido à inteligência do computador lê no máximo
 
 ## A página
 
+Com cara de aplicativo: a moldura fica e só a página rola, barras de rolagem finas, texto em tamanho de
+programa (14 px), animações curtas (que somem com "reduzir movimento" do sistema), e quatro tamanhos de
+janela (larga, notebook, estreita só com ícones, pequena com a barra embaixo). Atalhos: `/` ou Ctrl/⌘ K
+buscam, Alt 1–7 abrem as abas, Esc fecha. Dá pra **instalar como aplicativo** (manifesto
+`manifest.webmanifest`; Ajustes mostra "Instalar como aplicativo" quando o navegador oferece): abre numa
+janela própria.
+
 CSP: só scripts e estilos da própria origem, imagens e sons só dela ou `blob:`, nada de iframes, workers,
 formulários ou `base`, `frame-ancestors 'none'` e **Trusted Types** (nenhum texto vira HTML ou script).
 Fora isso: HSTS, `nosniff`, `no-referrer`, COOP/CORP, Permissions-Policy. Um arquivo aberto na página

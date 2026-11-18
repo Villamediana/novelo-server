@@ -6,7 +6,7 @@ import { Steps, kindOf, statusOf, Categories } from '../core/words.js';
 import { photosOf, filesOf, soundsOf } from '../core/attached.js';
 import { FileKind } from '../core/brain.js';
 import { safeType } from '../core/sync.js';
-import { Check, Icon, IconBtn, Photo, useApp, useData, when, toInput, fromInput, grow, useBlobUrl } from './kit.jsx';
+import { Check, Icon, IconBtn, Photo, useApp, useData, when, toInput, fromInput, grow, useBlobUrl, useLeave } from './kit.jsx';
 
 function FileRow({ c }) {
   const app = useApp();
@@ -45,6 +45,7 @@ export function EntryPanel({ id, fresh, onClose }) {
   const [newStep, setNewStep] = useState('');
   const [showHidden, setShowHidden] = useState(false);
   const [newCat, setNewCat] = useState(false);
+  const [leaving, leave] = useLeave(onClose);
   useEffect(() => { grow(titleRef.current); grow(bodyRef.current); });
   useEffect(() => {
     const key = (ev) => { if (ev.key === 'Escape') close(); };
@@ -63,18 +64,18 @@ export function EntryPanel({ id, fresh, onClose }) {
   function close() {
     save();
     library.dropIfEmpty(id);
-    onClose();
+    leave();
   }
   const created = new Intl.DateTimeFormat(lang === 'en' ? 'en' : lang === 'es' ? 'es' : 'pt-BR', { weekday: 'long', hour: '2-digit', minute: '2-digit', timeZone: zone }).format(new Date(e.createdAt));
   const categories = Categories.inUse(data.entries());
   return (
     <>
-      <div className="scrim" onClick={close} />
-      <aside className="panel" aria-label={e.title}>
+      <div className={`scrim${leaving ? ' leaving' : ''}`} onClick={close} />
+      <aside className={`panel${leaving ? ' leaving' : ''}`} aria-label={e.title}>
         <div className="panel-top">
           <IconBtn icon="close" label={t('close')} onClick={close} />
           <div className="grow" />
-          <IconBtn icon="trash" label={t('delete')} onClick={() => { library.delete(id); app.toast(t('deleted'), () => { const back = library.undoDelete(id); if (back) app.open(back); }); onClose(); }} />
+          <IconBtn icon="trash" label={t('delete')} onClick={() => { library.delete(id); app.toast(t('deleted'), () => { const back = library.undoDelete(id); if (back) app.open(back); }); leave(); }} />
         </div>
         <div className="kind-line">{t(`kind_${kind}`)} · {created}</div>
         <textarea ref={titleRef} className="title-edit" rows={1} autoFocus={fresh} defaultValue={e.title} placeholder={t('title')} onInput={(ev) => grow(ev.target)} onBlur={save} />

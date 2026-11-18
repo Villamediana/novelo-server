@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import * as T from '../core/time.js';
 import * as D from '../core/doses.js';
-import { Check, Icon, IconBtn, useApp, useData, hm, toInput } from './kit.jsx';
+import { Check, Icon, IconBtn, useApp, useData, hm, toInput, useLeave } from './kit.jsx';
 
 export function MedCard({ m }) {
   const app = useApp();
@@ -67,6 +67,7 @@ export function MedPanel({ id, fresh, onClose }) {
   const { t, zone } = app;
   const m = data.med(id);
   const [times, setTimes] = useState(() => (m ? D.times(m).map(T.hhmm).join(', ') : ''));
+  const [leaving, leave] = useLeave(onClose);
   // Esc closes it, as an item's panel (what is being typed is kept first).
   useEffect(() => {
     const key = (ev) => {
@@ -81,16 +82,16 @@ export function MedPanel({ id, fresh, onClose }) {
   const save = (patch) => app.library.saveMed({ ...m, ...patch });
   function close() {
     app.library.dropMedIfEmpty(id);
-    onClose();
+    leave();
   }
   return (
     <>
-      <div className="scrim" onClick={close} />
-      <aside className="panel" aria-label={m.name}>
+      <div className={`scrim${leaving ? ' leaving' : ''}`} onClick={close} />
+      <aside className={`panel${leaving ? ' leaving' : ''}`} aria-label={m.name}>
         <div className="panel-top">
           <IconBtn icon="close" label={t('close')} onClick={close} />
           <div className="grow" />
-          <IconBtn icon="trash" label={t('delete')} onClick={() => { app.library.deleteMed(id); onClose(); }} />
+          <IconBtn icon="trash" label={t('delete')} onClick={() => { app.library.deleteMed(id); leave(); }} />
         </div>
         <textarea className="title-edit" rows={1} autoFocus={fresh} defaultValue={m.name} placeholder={t('medName')} onBlur={(e) => save({ name: e.target.value.trim() })} />
         <div className="fields" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
