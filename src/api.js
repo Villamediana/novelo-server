@@ -82,6 +82,9 @@ export class Api {
     this.maxHeld = config.int('MAX_HELD_MB', 1024) * 1024 * 1024;
     this.maxOpen = config.int('MAX_OPEN', 20_000);
     this.held = 0;
+    // The sync's bodies being read at once (files up to 40 MB each), in memory.
+    this.maxSyncHeld = config.int('MAX_SYNC_HELD_MB', 256) * 1024 * 1024;
+    this.syncHeld = 0;
     this.open = 0;
     this.runs = new Map(); // device:request → { promise, done, at, size, listeners, gone }
     this.kept = 0;
@@ -341,30 +344,45 @@ Api.prototype.syncRoute = async function syncRoute(req, res, path) {
     const ip = this.knock(req);
     sync.rate(`ip:${ip}`, 30);
     const body = parseJson(await readBody(req, 4096));
-    return sendJson(res, 200, sync.startLink(body.key, body.name, ip));
+    return sendJson(res, 200, sync.startLink(body.key, body.name));
   }
   const poll = /^\/v1\/link\/([A-Za-z0-9_-]{22,64})$/.exec(path);
   if (req.method === 'GET' && poll) {
     sync.rate(`ip:${clientIp(req, this.trust)}`, 120);
     req.resume();
-    return sendJson(res, 200, await sync.pollLink(poll[1], q('poll'), Math.min(Math.max(num('wait', 0), 0), 25) * 1000, aborted.signal));
+    // The poll secret comes in a header: never in the address (addresses are written down on the way).
+    const secret = req.headers['x-novelo-poll'];
+    return sendJson(res, 200, await sync.pollLink(poll[1], typeof secret === 'string' ? secret : null, Math.min(Math.max(num('wait', 0), 0), 25) * 1000, aborted.signal));
   }
 
   // Who asks: a computer (its token) or the phone (its signature). The computer's body isn't signed.
   const bearer = typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ');
   let who;
   let raw = Buffer.alloc(0);
-  const limit = req.method === 'PUT' ? sync.maxBlob + 64 : req.method === 'POST' ? (path.startsWith('/v1/web/ask/') ? 32 * 1024 * 1024 : SYNC_BODY) : 0;
-  if (bearer) {
-    who = sync.web(req);
-    raw = limit ? await readBody(req, limit) : (req.resume(), raw);
-  } else {
-    const s = await this.signed(req, path, limit);
-    raw = s.raw;
-    who = { install: s.install, device: s.id, phone: true };
-    who.space = sync.spaceOf(s.install)?.id ?? null;
+  const webAsk = /^\/v1\/web\/ask\/([a-z][a-z0-9_]{0,31})$/.exec(path);
+  const askLimit = webAsk ? (this.router.jobs.get(webAsk[1])?.max_body_kb ?? 0) * 1024 : 0;
+  const limit = req.method === 'PUT' ? sync.maxBlob + 64 : req.method === 'POST' ? (webAsk ? askLimit : SYNC_BODY) : 0;
+  // Bodies held in memory at once (files up to 40 MB each): past a total, "busy" before reading more.
+  const declared = Number(req.headers['content-length'] || 0);
+  if (limit && this.syncHeld + Math.min(declared || limit, limit) > this.maxSyncHeld) throw new HttpError(503, 'busy', 'Servidor cheio.', { retry_after: 15 });
+  const hold = limit ? Math.min(declared || limit, limit) : 0;
+  this.syncHeld += hold;
+  try {
+    if (bearer) {
+      who = sync.web(req);
+      // Counted before the body is read: a computer can't make the server read megabytes past its limit.
+      sync.rate(who.space);
+      raw = limit ? await readBody(req, limit) : (req.resume(), raw);
+    } else {
+      const s = await this.signed(req, path, limit);
+      raw = s.raw;
+      who = { install: s.install, device: s.id, phone: true };
+      who.space = sync.spaceOf(s.install)?.id ?? null;
+      sync.rate(who.space ?? who.install);
+    }
+  } finally {
+    this.syncHeld -= hold;
   }
-  sync.rate(who.space ?? who.install);
 
   if (path.startsWith('/v1/web/')) {
     if (!who.link) throw new HttpError(403, 'forbidden', 'Só para o computador.');

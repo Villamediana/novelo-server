@@ -2,7 +2,7 @@
 // server into the data (a change made here meanwhile merged field by field), what changed here up
 // (a write refused because something newer is there merged and sent again), files up and down.
 import * as lock from './crypto.js';
-import { SCHEMA, TABLES } from './data.js';
+import { SCHEMA, TABLES, ridOf } from './data.js';
 
 /** Three ways, as the phone does: changed only here stays, only there comes, on both — the one changed last. */
 export function merge(base, local, remote) {
@@ -73,14 +73,14 @@ export class WebSync {
     for (const r of rows) {
       try {
         const v = JSON.parse(new TextDecoder().decode(await lock.openBlob(this.keys, `rec:${r.k}`, r.data)));
-        if (v && SCHEMA[r.t]) opened.push([r, v]);
+        if (v && Object.hasOwn(SCHEMA, r.t) && (v.row === null || (typeof v.row === 'object' && !Array.isArray(v.row)))) opened.push([r, v]);
       } catch { /* not this key's */ }
     }
     this.data.batch(() => {
       for (const [r, v] of opened) {
-        this.state.set(r.k, { k: r.k, t: r.t, rid: r.rid, s: r.s, base: v.base });
+        this.state.set(r.k, { k: r.k, t: r.t, rid: r.rid, s: r.s, base: v.base ?? null, gone: v.gone === true });
         this.byRow.set(`${r.t}|${r.rid}`, r.k);
-        this.data.put(r.t, r.rid, v.row);
+        if (v.row) this.data.put(r.t, r.rid, v.row);
         if (r.dirty) this.data.dirty.set(`${r.t}|${r.rid}`, true);
         if (r.held) this.data.held.add(`${r.t}|${r.rid}`);
       }
@@ -100,7 +100,9 @@ export class WebSync {
         out.push({ k, remove: true });
         continue;
       }
-      const plain = new TextEncoder().encode(JSON.stringify({ row, base: st?.base ?? null }));
+      // A row gone (known so at its number) is kept as gone: the same row made again goes over it.
+      // A row deleted here and not yet up is not gone yet: it still has to go.
+      const plain = new TextEncoder().encode(JSON.stringify({ row, base: st?.base ?? null, gone: !row && !!st?.gone }));
       const sealed = await lock.sealBlob(this.keys, `rec:${k}`, plain);
       out.push({ k, t, rid, s: st?.s ?? 0, dirty, held: this.data.held.has(`${t}|${rid}`), data: sealed });
     }
@@ -113,6 +115,21 @@ export class WebSync {
     this.data.changed.clear();
     if (rows.length) await this.keep(rows);
     return this.push().catch(() => {});
+  }
+
+  /** What she was writing and didn't send yet: sealed with the space's key, kept here. */
+  async saveDraft(text) {
+    await this.store.set('draft', text ? await lock.sealBlob(this.keys, 'draft', new TextEncoder().encode(text)) : null);
+  }
+
+  async loadDraft() {
+    const d = await this.store.get('draft');
+    if (!d) return '';
+    try {
+      return new TextDecoder().decode(await lock.openBlob(this.keys, 'draft', d));
+    } catch {
+      return '';
+    }
   }
 
   // ------------------------------------------------------------------ news from the server
@@ -128,10 +145,16 @@ export class WebSync {
       for (const c of res.changes) {
         const st = this.state.get(c.k);
         if (c.d === null) {
+          // One already known (this page's own deletion coming back, or one seen before): the row may
+          // have been made again here since, and goes up over it.
+          if (st && (st.gone || st.s >= c.s)) {
+            if (st.s < c.s) st.s = c.s;
+            continue;
+          }
           if (st) {
             this.data.put(st.t, st.rid, null);
             this.data.dirty.delete(`${st.t}|${st.rid}`);
-            this.state.delete(c.k);
+            this.state.set(c.k, { ...st, s: c.s, base: null, gone: true });
             touched.push([st.t, st.rid]);
           }
           continue;
@@ -143,10 +166,12 @@ export class WebSync {
         } catch {
           continue; // not this space's key
         }
-        if (!rec || !SCHEMA[rec.t] || typeof rec.id !== 'string' || !rec.r || typeof rec.r !== 'object') continue;
-        const key = `${rec.t}|${rec.id}`;
-        this.byRow.set(key, c.k);
+        if (!rec || !Object.hasOwn(SCHEMA, rec.t) || typeof rec.id !== 'string' || !rec.r || typeof rec.r !== 'object' || Array.isArray(rec.r)) continue;
         const remote = clean(rec.t, rec.r);
+        // The record is the row it says it is: its name is that row's, and the row's own id is that one
+        // (otherwise it could land on another row, or two records fight over one).
+        if (ridOf(rec.t, remote) !== rec.id || (await this.keyOf(rec.t, rec.id)) !== c.k) continue;
+        const key = `${rec.t}|${rec.id}`;
         const local = this.data.tables[rec.t].get(rec.id);
         if (local && this.data.dirty.has(key)) {
           const merged = merge(st?.base ?? null, local, remote);
@@ -156,7 +181,7 @@ export class WebSync {
           this.data.put(rec.t, rec.id, remote);
           this.data.dirty.delete(key);
         }
-        this.state.set(c.k, { k: c.k, t: rec.t, rid: rec.id, s: c.s, base: remote });
+        this.state.set(c.k, { k: c.k, t: rec.t, rid: rec.id, s: c.s, base: remote, gone: false });
         touched.push([rec.t, rec.id]);
       }
       this.cursor = res.seq;
@@ -184,7 +209,7 @@ export class WebSync {
         const row = this.data.tables[t].get(rid) ?? null;
         const k = await this.keyOf(t, rid);
         const st = this.state.get(k);
-        if (!row && !st) {
+        if (!row && (!st || st.gone)) {
           this.data.dirty.delete(key);
           continue;
         }
@@ -205,23 +230,29 @@ export class WebSync {
           const key = `${o.t}|${o.rid}`;
           touched.push([o.t, o.rid]);
           if (r.ok) {
-            if (o.row) this.state.set(o.k, { k: o.k, t: o.t, rid: o.rid, s: r.s, base: o.row });
-            else this.state.delete(o.k);
+            this.state.set(o.k, { k: o.k, t: o.t, rid: o.rid, s: r.s, base: o.row ?? null, gone: !o.row });
             // Changed again while it went: still to go.
             if (sameRow(this.data.tables[o.t].get(o.rid) ?? null, o.row)) this.data.dirty.delete(key);
             continue;
           }
           refused = true;
+          const st = this.state.get(o.k);
           if (r.d === null) {
-            // Deleted there: here too.
+            if (o.row && (!st || st.gone)) {
+              // Gone there, and here a row made again after that (brought back with "Desfazer", a dose
+              // ticked again): it goes up over the gap, next round.
+              this.state.set(o.k, { k: o.k, t: o.t, rid: o.rid, s: r.s, base: null, gone: true });
+              continue;
+            }
+            // Deleted there while changed here: here too (deleting wins over changing).
             this.data.put(o.t, o.rid, null);
             this.data.dirty.delete(key);
-            this.state.delete(o.k);
+            this.state.set(o.k, { k: o.k, t: o.t, rid: o.rid, s: r.s, base: null, gone: true });
             continue;
           }
           if (!o.row) {
             // Deleted here, changed there: the deletion goes again over what is there.
-            this.state.set(o.k, { k: o.k, t: o.t, rid: o.rid, s: r.s, base: null });
+            this.state.set(o.k, { k: o.k, t: o.t, rid: o.rid, s: r.s, base: null, gone: false });
             continue;
           }
           let rec;
@@ -230,10 +261,12 @@ export class WebSync {
           } catch {
             continue;
           }
+          if (!rec || rec.t !== o.t || rec.id !== o.rid || !rec.r || typeof rec.r !== 'object' || Array.isArray(rec.r)) continue;
           const remote = clean(o.t, rec.r);
+          if (ridOf(o.t, remote) !== o.rid) continue;
           const merged = merge(this.state.get(o.k)?.base ?? null, o.row, remote);
           this.data.put(o.t, o.rid, merged);
-          this.state.set(o.k, { k: o.k, t: o.t, rid: o.rid, s: r.s, base: remote });
+          this.state.set(o.k, { k: o.k, t: o.t, rid: o.rid, s: r.s, base: remote, gone: false });
           if (sameRow(merged, remote)) this.data.dirty.delete(key);
         }
       }
@@ -315,23 +348,42 @@ export class WebSync {
   }
 }
 
-/** Only the columns of the table (and a capture's files), nothing else from the record. */
-function clean(t, r) {
-  const cols = SCHEMA[t].defaults;
+const BLOB_ID = /^[A-Za-z0-9_-]{22,64}$/;
+const KINDS = ['image', 'thumb', 'audio', 'file'];
+
+/** A capture's files as they may be: {image|thumb|audio|file: {id, size, mime}}, each checked; null when none. */
+export function cleanMedia(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   const out = {};
+  for (const kind of KINDS) {
+    const f = Object.hasOwn(v, kind) ? v[kind] : null;
+    if (!f || typeof f !== 'object' || typeof f.id !== 'string' || !BLOB_ID.test(f.id)) continue;
+    out[kind] = { id: f.id, size: Number.isSafeInteger(f.size) && f.size >= 0 ? f.size : 0, ...(typeof f.mime === 'string' && f.mime.length <= 100 ? { mime: f.mime } : {}) };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** Only the columns of the table (and a capture's files), nothing else from the record. */
+export function clean(t, r) {
+  const cols = SCHEMA[t].defaults;
+  const out = Object.create(null);
   for (const k of Object.keys(r)) {
-    if (k in cols || (t === 'captures' && k === 'media')) out[k] = r[k];
+    if (!Object.hasOwn(cols, k)) continue;
+    const v = r[k];
+    // Values only of the kinds a row has (text, number, null), text of a sane size.
+    if (typeof v === 'string') out[k] = v.length > 400_000 ? v.slice(0, 400_000) : v;
+    else if (typeof v === 'number') out[k] = Number.isFinite(v) ? v : 0;
+    else if (typeof v === 'boolean') out[k] = v ? 1 : 0;
+    else out[k] = null;
+    // The row's own keys are numbers.
+    if (SCHEMA[t].pk.includes(k) && !Number.isSafeInteger(out[k])) out[k] = typeof out[k] === 'string' && /^-?\d{1,16}$/.test(out[k]) ? Number(out[k]) : NaN;
   }
-  // Values only of the kinds a row has (text, number, null; a capture's files an object).
-  for (const k of Object.keys(out)) {
-    const v = out[k];
-    if (k === 'media') {
-      if (!v || typeof v !== 'object' || Array.isArray(v)) delete out[k];
-      continue;
-    }
-    if (v !== null && typeof v !== 'string' && typeof v !== 'number') out[k] = typeof v === 'boolean' ? (v ? 1 : 0) : null;
+  const row = { ...cols, ...out };
+  if (t === 'captures') {
+    const media = cleanMedia(r.media);
+    if (media) row.media = media;
   }
-  return { ...cols, ...out };
+  return row;
 }
 
 const SAFE = /^(image\/(jpeg|png|webp|gif|heic|heif)|audio\/[a-z0-9.+-]+|video\/(mp4|webm)|application\/pdf|text\/plain)$/i;

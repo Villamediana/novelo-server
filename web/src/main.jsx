@@ -98,12 +98,32 @@ async function start() {
     unlinked = true;
     if (tellServer) await api.unlink().catch(() => {});
     await store.wipe();
-    try { localStorage.removeItem('novelo-draft'); } catch { /* none */ }
+    // The other tabs of this page let go too (their keys are in their memory).
+    try { tabs?.postMessage('unlinked'); } catch { /* closed */ }
     root.render(<Unlinked t={t} />);
   };
+  let tabs = null;
+  try {
+    tabs = new BroadcastChannel('novelo-web');
+    tabs.onmessage = (e) => { if (e.data === 'unlinked') unlink(false); };
+  } catch { /* an old browser: each tab finds out by itself (the server says 401) */ }
   const api = new Api({ token, onUnlinked: () => unlink(false) });
   const syncListeners = new Set();
-  const sync = new WebSync({ api, keys, data, store, onStatus: (s) => syncListeners.forEach((f) => f(s)) });
+  let wasOnline = true;
+  let thinking = null; // the mind, once made (below)
+  const sync = new WebSync({
+    api,
+    keys,
+    data,
+    store,
+    onStatus: (s) => {
+      syncListeners.forEach((f) => f(s));
+      // The server answered again after not answering: what waited in the line goes now.
+      const ok = s.online && !s.error;
+      if (ok && !wasOnline) thinking?.online();
+      wasOnline = ok;
+    },
+  });
   await sync.load();
   const localFiles = new Map(); // capture id → the File she dropped (to describe it without fetching it back)
   const mindListeners = new Set();
@@ -129,6 +149,7 @@ async function start() {
     },
     onChange: (m) => mindListeners.forEach((f) => f(m)),
   });
+  thinking = mind;
   const library = new Library(data, zone, lang);
   // What changes here is kept in the browser at once and sent (a moment later, several together).
   let soon = null;
@@ -137,6 +158,8 @@ async function start() {
     soon = setTimeout(() => sync.saveLocal(), 400);
   });
   addEventListener('online', () => { mind.online(); sync.saveLocal(); });
+  // Seen at once (the sync may be in the middle of a long wait and only notice later).
+  addEventListener('offline', () => sync.setStatus({ online: false }));
   addEventListener('beforeunload', () => { sync.saveLocal(); });
 
   const app = {

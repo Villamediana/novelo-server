@@ -70,6 +70,9 @@ const B64URL = /^[A-Za-z0-9_-]*$/;
 const MINUTE = 60_000;
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
+// A name shown to someone (the computer's on the phone, the phone's on the computer): no control
+// characters and none that turn text around (a name that reads as another one).
+const shown = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, '').trim().slice(0, max);
 const token = (n = 32) => crypto.randomBytes(n).toString('base64url');
 const bad = (message) => new HttpError(422, 'bad_request', message);
 
@@ -88,6 +91,16 @@ export class Sync {
     // A link not read by the phone in this long is gone; computers linked to one phone, at most.
     this.linkTtl = 10 * MINUTE;
     this.maxLinks = 10;
+    // Codes waiting to be read, from everyone at once (each address may make 30 a minute).
+    this.maxPending = config.int('SYNC_PENDING_LINKS', 5000);
+    // A computer not seen in this many days is unlinked (it has to read a new code).
+    this.idleMs = config.int('SYNC_IDLE_DAYS', 90) * 24 * 3600_000;
+    // The disk is never filled up: below this much free, nothing more is kept.
+    this.minFree = config.int('SYNC_MIN_FREE_MB', 2048) * 1024 * 1024;
+    // Long waits (news, a code being read) open at once: per space, per code and in all.
+    this.maxWaitsPerSpace = 12;
+    this.maxWaits = config.int('SYNC_MAX_WAITS', 4000);
+    this.waits = 0;
     this.waiters = new Map(); // space → Set<() => void>
     this.polls = new Map(); // link id → Set<() => void>
     this.calls = new Map(); // space or ip → { start, n }
@@ -114,6 +127,10 @@ export class Sync {
       linksOf: db.prepare('SELECT id, name, created, last_seen FROM links WHERE space = ? AND approved > 0 ORDER BY created'),
       dropLink: db.prepare('DELETE FROM links WHERE id = ? AND space = ?'),
       stale: db.prepare('DELETE FROM links WHERE approved = 0 AND created < ?'),
+      // Read by the phone but never fetched by the computer: its token (kept only until then) goes.
+      undelivered: db.prepare('DELETE FROM links WHERE approved > 0 AND wrapped IS NOT NULL AND created < ?'),
+      idle: db.prepare('DELETE FROM links WHERE approved > 0 AND wrapped IS NULL AND last_seen < ?'),
+      pending: db.prepare('SELECT COUNT(*) AS n FROM links WHERE approved = 0'),
     };
   }
 
@@ -125,9 +142,32 @@ export class Sync {
     if (++c.n > max) throw new HttpError(429, 'rate_limited', 'Muitos pedidos em pouco tempo.', { retry_after: 30 });
   }
 
+  /** Room on the disk for [bytes] more, keeping [minFree] free. */
+  room(bytes) {
+    let free = Infinity;
+    try {
+      const st = fs.statfsSync(this.dir);
+      free = st.bavail * st.bsize;
+    } catch { /* can't tell: the space's own limits still hold */ }
+    if (free - bytes < this.minFree) throw new HttpError(507, 'server_full', 'O servidor está sem espaço agora.', { retry_after: 3600 });
+  }
+
+  /** One more long wait open, or 429 when there are too many ([n] of this one already). */
+  enter(n, max) {
+    if (n >= max || this.waits >= this.maxWaits) throw new HttpError(429, 'rate_limited', 'Conexões demais abertas.', { retry_after: 10 });
+    this.waits++;
+    let left = false;
+    return () => {
+      if (!left) this.waits--;
+      left = true;
+    };
+  }
+
   prune() {
     const now = this.now();
     this.q.stale.run(now - this.linkTtl);
+    this.q.undelivered.run(now - this.linkTtl);
+    this.q.idle.run(now - this.idleMs);
     for (const [k, c] of this.calls) if (now - c.start > MINUTE) this.calls.delete(k);
   }
 
@@ -217,6 +257,8 @@ export class Sync {
       }
       return { k: it.k, base, data };
     });
+    const adding = parsed.reduce((n, it) => n + (it.data ? it.data.length : 0), 0);
+    if (adding) this.room(adding);
     const results = [];
     let seq = s.seq;
     let bytes = s.bytes;
@@ -256,6 +298,7 @@ export class Sync {
   async waitFor(spaceId, since, ms, signal) {
     const head = () => this.q.space.get(spaceId)?.seq ?? -1;
     if (head() !== since || ms <= 0) return true;
+    const leave = this.enter(this.waiters.get(spaceId)?.size ?? 0, this.maxWaitsPerSpace);
     return await new Promise((resolve) => {
       let set = this.waiters.get(spaceId);
       if (!set) this.waiters.set(spaceId, (set = new Set()));
@@ -263,6 +306,7 @@ export class Sync {
         clearTimeout(timer);
         set.delete(wake);
         if (!set.size) this.waiters.delete(spaceId);
+        leave();
         resolve(v);
       };
       const wake = () => done(true);
@@ -296,6 +340,7 @@ export class Sync {
     if (!s) throw new HttpError(404, 'no_space', 'Espaço não existe.');
     const old = this.q.blob.get(spaceId, id)?.size ?? 0;
     if (s.blob_bytes - old + bytes.length > this.maxBlobs) throw new HttpError(507, 'space_full', 'O espaço de arquivos do Novelo Web está cheio.');
+    this.room(bytes.length);
     const dir = path.join(this.dir, spaceId);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const tmp = path.join(dir, `.${id}.${process.pid}.${crypto.randomBytes(4).toString('hex')}`);
@@ -336,11 +381,13 @@ export class Sync {
   // ------------------------------------------------------------------ linking a computer
 
   /** A computer wants to be linked: its public key (P-256, raw, base64url) and what it is. */
-  startLink(webKey, name, ip) {
+  startLink(webKey, name) {
     if (typeof webKey !== 'string' || !B64URL.test(webKey) || Buffer.from(webKey, 'base64url').length !== 65) throw bad('key: P-256 (65 bytes).');
+    if (this.q.pending.get().n >= this.maxPending) throw new HttpError(503, 'busy', 'Muitos códigos abertos agora. Tente de novo em instantes.', { retry_after: 60 });
     const id = token(16);
     const poll = token(32);
-    this.q.newLink.run(id, webKey, sha(poll), String(name ?? '').replace(/[\u0000-\u001f]/g, '').slice(0, 80), String(ip ?? '').slice(0, 64), this.now());
+    // The address isn't kept (it was only for counting, in memory): nothing about the computer but its name.
+    this.q.newLink.run(id, webKey, sha(poll), shown(name, 80), '', this.now());
     return { id, poll, expires_in: Math.round(this.linkTtl / 1000) };
   }
 
@@ -358,6 +405,7 @@ export class Sync {
     };
     let l = read();
     if (!l && ms > 0) {
+      const leave = this.enter(this.polls.get(id)?.size ?? 0, 2);
       await new Promise((resolve) => {
         let set = this.polls.get(id);
         if (!set) this.polls.set(id, (set = new Set()));
@@ -365,6 +413,7 @@ export class Sync {
           clearTimeout(timer);
           set.delete(done);
           if (!set.size) this.polls.delete(id);
+          leave();
           resolve();
         };
         const timer = setTimeout(done, ms);
@@ -398,7 +447,7 @@ export class Sync {
     if (this.q.linksOf.all(s.id).length >= this.maxLinks) throw new HttpError(409, 'too_many', 'Computadores demais ligados a este celular.');
     const t = token(32);
     const now = this.now();
-    const payload = JSON.stringify({ token: t, space: s.id, wrapped: w, owner: String(owner ?? '').slice(0, 80) });
+    const payload = JSON.stringify({ token: t, space: s.id, wrapped: w, owner: shown(owner, 80) });
     const r = this.q.approve.run(s.id, sha(t), payload, now, now, linkId);
     if (r.changes !== 1) throw new HttpError(410, 'expired', 'O código expirou. Mostre outro no computador.');
     const set = this.polls.get(linkId);

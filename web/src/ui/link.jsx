@@ -40,7 +40,7 @@ export function LinkPage({ api, t, onLinked }) {
       const keys = await lock.linkKeys();
       const s = await api.startLink(keys.pub, browserName(t));
       if (mine !== round.current) return;
-      const c = { url: lock.linkUrl(location.origin, s.id, keys.pub), id: s.id, poll: s.poll, privateKey: keys.privateKey };
+      const c = { url: lock.linkUrl(location.origin, s.id, keys.pub, keys.secret), id: s.id, poll: s.poll, privateKey: keys.privateKey, secret: keys.secret };
       setCode(c);
       // Waiting for the phone: one long wait after another, until it reads the code (or it expires).
       for (;;) {
@@ -58,7 +58,9 @@ export function LinkPage({ api, t, onLinked }) {
         }
         if (res.status !== 'linked') continue;
         setState('linking');
-        const opened = await lock.unwrapLink(c.privateKey, c.id, res.wrapped);
+        const opened = await lock.unwrapLink(c.privateKey, c.id, c.secret, res.wrapped);
+        // What the phone said (only it could say it) and what the server says have to be the same space.
+        if (opened.space !== res.space) throw new Error('espaço diferente');
         await onLinked({ token: res.token, space: opened.space, key: opened.key, owner: opened.owner });
         return;
       }
@@ -87,7 +89,7 @@ export function LinkPage({ api, t, onLinked }) {
           <p className="safe">{t('linkSafe')}</p>
         </div>
         <div>
-          <div className="qr">
+          <div className="qr" data-code={code?.url}>
             {code ? <Qr text={code.url} /> : null}
             {state !== 'waiting' || !code ? (
               <div className="over">

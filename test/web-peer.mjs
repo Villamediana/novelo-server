@@ -19,10 +19,10 @@ const save = () => fs.writeFileSync(stateFile, JSON.stringify(state));
 const out = (v) => process.stdout.write(JSON.stringify(v) + '\n');
 const subtle = globalThis.crypto.subtle;
 
-async function api(method, path, body, raw) {
+async function api(method, path, body, raw, headers = {}) {
   const res = await fetch(state.server + path, {
     method,
-    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
     body: raw ?? (body ? JSON.stringify(body) : undefined),
   });
   const data = Buffer.from(await res.arrayBuffer());
@@ -58,19 +58,20 @@ switch (cmd) {
     const pair = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
     const pub = lock.b64u.enc(new Uint8Array(await subtle.exportKey('raw', pair.publicKey)));
     state.jwk = await subtle.exportKey('jwk', pair.privateKey);
+    state.secret = lock.b64u.enc(globalThis.crypto.getRandomValues(new Uint8Array(16)));
     const r = await api('POST', '/v1/link', { key: pub, name: args[1] ?? 'Teste' });
     if (r.status !== 200) throw new Error(`link ${r.status} ${r.data}`);
     state.link = r.json.id;
     state.poll = r.json.poll;
     save();
-    out({ code: lock.linkUrl(state.server, r.json.id, pub) });
+    out({ code: lock.linkUrl(state.server, r.json.id, pub, state.secret) });
     break;
   }
   case 'wait': {
-    const r = await api('GET', `/v1/link/${state.link}?poll=${state.poll}&wait=20`);
+    const r = await api('GET', `/v1/link/${state.link}?wait=20`, null, undefined, { 'X-Novelo-Poll': state.poll });
     if (r.json?.status !== 'linked') throw new Error(`wait ${r.status} ${r.data}`);
     const priv = await subtle.importKey('jwk', state.jwk, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
-    const opened = await lock.unwrapLink(priv, state.link, r.json.wrapped);
+    const opened = await lock.unwrapLink(priv, state.link, state.secret, r.json.wrapped);
     state.token = r.json.token;
     state.master = lock.b64u.enc(opened.key);
     state.space = opened.space;

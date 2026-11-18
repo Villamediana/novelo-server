@@ -99,6 +99,17 @@ export class WebMind {
     this.line = []; // [{id, where: 'going'|'in_line'|'later'|'failed'|'phone', text, message}]
     this.running = false;
     this.answers = [];
+    // What waits for the network (or for the server, busy) tries again by itself: after 15 s, then
+    // longer each time (up to 5 min) — and at once when the network is seen back.
+    this.wait = 0;
+    this.timer = null;
+  }
+
+  /** Again in a while, for what waits. */
+  later() {
+    clearTimeout(this.timer);
+    this.wait = Math.min(this.wait ? this.wait * 2 : 15_000, 300_000);
+    this.timer = setTimeout(() => this.online(), this.wait);
   }
 
   emit() {
@@ -158,6 +169,8 @@ export class WebMind {
 
   /** The network is back: what waited for it goes. */
   online() {
+    clearTimeout(this.timer);
+    this.timer = null;
     let any = false;
     for (const l of this.line) if (l.where === 'later') { l.where = 'in_line'; any = true; }
     if (any) {
@@ -179,6 +192,7 @@ export class WebMind {
           const answer = await this.process(next.id);
           this.line = this.line.filter((l) => l.id !== next.id);
           if (answer) this.answers.push(answer);
+          this.wait = 0;
         } catch (e) {
           if (e instanceof Problem && e.kind === 'handoff') {
             this.handOff(next.id);
@@ -187,6 +201,7 @@ export class WebMind {
           } else if (e instanceof Problem && e.kind === 'offline') {
             next.where = 'later';
             next.message = e.message;
+            this.later();
           } else {
             next.where = 'failed';
             next.message = e?.message ?? String(e);

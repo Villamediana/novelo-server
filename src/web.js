@@ -28,16 +28,17 @@ const CSP = [
   "default-src 'none'",
   "script-src 'self'",
   "style-src 'self'",
-  "img-src 'self' blob: data:",
+  "img-src 'self' blob:",
   "media-src 'self' blob:",
   "font-src 'self'",
   "connect-src 'self'",
-  "worker-src 'self'",
   "manifest-src 'self'",
-  "frame-src blob:",
   "frame-ancestors 'none'",
   "base-uri 'none'",
   "form-action 'none'",
+  // No text ever becomes HTML or script (Trusted Types: the browser refuses it).
+  "require-trusted-types-for 'script'",
+  "trusted-types 'none'",
 ].join('; ');
 
 const HEADERS = {

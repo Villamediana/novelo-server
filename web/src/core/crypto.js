@@ -6,9 +6,11 @@
 //   (HKDF-SHA256, salt "novelo-sync-v1"): "enc" encrypts the records (AES-256-GCM), "key" names them
 //   (HMAC-SHA256 of "<kind>:<id>": the server doesn't see what a record is), "blob" encrypts the files,
 //   "check" says which key a space is in without being it.
-// - Linking: the computer's key pair (ECDH P-256) is in its QR code; the phone answers with its own
-//   one-time public key and the space's key encrypted with HKDF(ECDH, salt = the link's id, info
-//   "novelo-link-v1") — only this computer can open it, and not the server that carries it.
+// - Linking: the computer's key pair (ECDH P-256) and a secret of 16 random bytes are in its QR code
+//   (the secret only there: it never goes to the server); the phone answers with its own one-time
+//   public key and the space's key encrypted with HKDF(ECDH ‖ secret, salt = the link's id, info
+//   "novelo-link-v2") — only this computer can open it, and only a phone that read its screen can
+//   make it: not the server that carries it, even one that knows the computer's public key.
 const subtle = globalThis.crypto.subtle;
 const te = new TextEncoder();
 const td = new TextDecoder();
@@ -44,7 +46,7 @@ export const b64 = {
 };
 
 const SALT = te.encode('novelo-sync-v1');
-const LINK_INFO = te.encode('novelo-link-v1');
+const LINK_INFO = te.encode('novelo-link-v2');
 const IV = 12;
 
 function concat(a, b) {
@@ -118,38 +120,45 @@ export function newId(n = 18) {
 
 // ------------------------------------------------------------------ linking
 
-/** The computer's key pair for its QR code: the public half raw (65 bytes, base64url), the private one kept. */
+/**
+ * The computer's key pair for its QR code — the public half raw (65 bytes, base64url), the private
+ * one kept (it can't be read out) — and the code's secret (16 bytes, base64url), only in the QR code.
+ */
 export async function linkKeys() {
   const pair = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
   const pub = new Uint8Array(await subtle.exportKey('raw', pair.publicKey));
-  return { privateKey: pair.privateKey, pub: b64u.enc(pub) };
+  return { privateKey: pair.privateKey, pub: b64u.enc(pub), secret: b64u.enc(globalThis.crypto.getRandomValues(new Uint8Array(16))) };
 }
 
-async function linkLock(privateKey, peerPubRaw, linkId) {
+async function linkLock(privateKey, peerPubRaw, linkId, secret) {
+  const extra = b64u.dec(secret);
+  if (extra.length !== 16) throw new Error('segredo do código inválido');
   const peer = await subtle.importKey('raw', peerPubRaw, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
   const shared = new Uint8Array(await subtle.deriveBits({ name: 'ECDH', public: peer }, privateKey, 256));
-  const base = await hkdfKey(shared);
+  const base = await hkdfKey(concat(shared, extra));
   return subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: te.encode(linkId), info: LINK_INFO }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 
 /** The phone's answer opened: { space, key (Uint8Array 32), owner }. */
-export async function unwrapLink(privateKey, linkId, wrapped) {
-  const lock = await linkLock(privateKey, b64u.dec(wrapped.pub), linkId);
+export async function unwrapLink(privateKey, linkId, secret, wrapped) {
+  const lock = await linkLock(privateKey, b64u.dec(wrapped.pub), linkId, secret);
   const pt = await subtle.decrypt({ name: 'AES-GCM', iv: b64u.dec(wrapped.iv), additionalData: te.encode(linkId) }, lock, b64u.dec(wrapped.ct));
   const v = JSON.parse(td.decode(pt));
-  return { space: v.space, key: b64u.dec(v.key), owner: v.owner ?? '' };
+  const key = typeof v.key === 'string' ? b64u.dec(v.key) : null;
+  if (typeof v.space !== 'string' || !key || key.length !== 32) throw new Error('resposta do celular inválida');
+  return { space: v.space, key, owner: typeof v.owner === 'string' ? v.owner : '' };
 }
 
 /** What the phone does with a QR code (here for the tests: the phone's own is in Kotlin). */
-export async function wrapLink(webPub, linkId, { space, key, owner = '' }) {
+export async function wrapLink(webPub, linkId, secret, { space, key, owner = '' }) {
   const mine = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
-  const lock = await linkLock(mine.privateKey, b64u.dec(webPub), linkId);
+  const lock = await linkLock(mine.privateKey, b64u.dec(webPub), linkId, secret);
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV));
   const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: te.encode(linkId) }, lock, te.encode(JSON.stringify({ space, key: b64u.enc(key), owner }))));
   return { pub: b64u.enc(new Uint8Array(await subtle.exportKey('raw', mine.publicKey))), iv: b64u.enc(iv), ct: b64u.enc(ct) };
 }
 
-/** What goes in the computer's QR code: the address that opens the Novelo on the phone, with the link and the key. */
-export function linkUrl(origin, linkId, pub) {
-  return `${origin}/web/link#${linkId}.${pub}`;
+/** What goes in the computer's QR code: the address that opens the Novelo on the phone, with the link, the key and the secret. */
+export function linkUrl(origin, linkId, pub, secret) {
+  return `${origin}/web/link#${linkId}.${pub}.${secret}`;
 }

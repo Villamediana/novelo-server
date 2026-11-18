@@ -59,7 +59,8 @@ export class Api {
   }
 
   pollLink(id, poll, wait = 25, signal) {
-    return this.call('GET', `/v1/link/${encodeURIComponent(id)}?poll=${encodeURIComponent(poll)}&wait=${wait}`, { signal });
+    // The poll secret in a header, not in the address (addresses end up in logs on the way).
+    return this.call('GET', `/v1/link/${encodeURIComponent(id)}?wait=${wait}`, { signal, headers: { 'X-Novelo-Poll': poll } });
   }
 
   unlink() {

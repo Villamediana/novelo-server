@@ -28,7 +28,7 @@ const web = (token) => async (method, path, body, headers = {}) => {
   const res = await fetch(server.url + path, {
     method,
     headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body && !(body instanceof Uint8Array) ? { 'Content-Type': 'application/json' } : {}), ...headers },
-    body: body === undefined ? undefined : body instanceof Uint8Array ? body : JSON.stringify(body),
+    body: body == null ? undefined : body instanceof Uint8Array ? body : JSON.stringify(body),
   });
   const data = Buffer.from(await res.arrayBuffer());
   let json = null;
@@ -43,16 +43,16 @@ async function linkComputer(name = 'Chrome no Windows') {
   const mine = await lock.linkKeys();
   const start = await web()('POST', '/v1/link', { key: mine.pub, name });
   assert.equal(start.status, 200);
-  const waiting = web()('GET', `/v1/link/${start.json.id}?poll=${start.json.poll}&wait=10`);
+  const waiting = web()('GET', `/v1/link/${start.json.id}?wait=10`, null, { 'X-Novelo-Poll': start.json.poll });
   await sleep(50);
-  // The phone read the QR code: link id and the computer's public key.
-  const wrapped = await lock.wrapLink(mine.pub, start.json.id, { space: spaceId, key: master, owner: 'Pixel da Ana' });
+  // The phone read the QR code: link id, the computer's public key and the code's secret.
+  const wrapped = await lock.wrapLink(mine.pub, start.json.id, mine.secret, { space: spaceId, key: master, owner: 'Pixel da Ana' });
   const ok = await signed(phone, 'POST', `/v1/link/${start.json.id}/approve`, { wrapped, owner: 'Pixel da Ana' });
   assert.equal(ok.status, 200, JSON.stringify(ok.json));
   const got = await waiting;
   assert.equal(got.status, 200);
   assert.equal(got.json.status, 'linked');
-  const opened = await lock.unwrapLink(mine.privateKey, start.json.id, got.json.wrapped);
+  const opened = await lock.unwrapLink(mine.privateKey, start.json.id, mine.secret, got.json.wrapped);
   return { token: got.json.token, id: start.json.id, opened, poll: start.json.poll, pub: mine.pub };
 }
 
@@ -118,7 +118,7 @@ test('o computador lê o código, recebe a chave cifrada pra ele e só uma vez',
   assert.equal(row.wrapped, null);
   assert.notEqual(row.token_hash, c.token);
   // Asked again: it was given once.
-  assert.equal((await web()('GET', `/v1/link/${c.id}?poll=${c.poll}`)).status, 410);
+  assert.equal((await web()('GET', `/v1/link/${c.id}`, null, { 'X-Novelo-Poll': c.poll })).status, 410);
   // The phone sees it in its list.
   const list = await signed(phone, 'GET', '/v1/links');
   assert.ok(list.json.links.some((l) => l.id === c.id && l.name === 'Chrome no Windows'));
@@ -127,12 +127,14 @@ test('o computador lê o código, recebe a chave cifrada pra ele e só uma vez',
 test('um código esquecido expira e um código lido por outro não serve', async () => {
   const mine = await lock.linkKeys();
   const start = await web()('POST', '/v1/link', { key: mine.pub, name: 'x' });
-  assert.equal((await web()('GET', `/v1/link/${start.json.id}?poll=errado`)).status, 404);
-  assert.equal((await web()('GET', `/v1/link/${start.json.id}?poll=${start.json.poll}`)).json.status, 'pending');
+  assert.equal((await web()('GET', `/v1/link/${start.json.id}`, null, { 'X-Novelo-Poll': 'errado' })).status, 404);
+  // The secret only counts in its header (never in the address).
+  assert.equal((await web()('GET', `/v1/link/${start.json.id}?poll=${start.json.poll}`)).status, 404);
+  assert.equal((await web()('GET', `/v1/link/${start.json.id}`, null, { 'X-Novelo-Poll': start.json.poll })).json.status, 'pending');
   server.app.db.prepare('UPDATE links SET created = created - 3600000 WHERE id = ?').run(start.json.id);
-  const wrapped = await lock.wrapLink(mine.pub, start.json.id, { space: spaceId, key: master });
+  const wrapped = await lock.wrapLink(mine.pub, start.json.id, mine.secret, { space: spaceId, key: master });
   assert.equal((await signed(phone, 'POST', `/v1/link/${start.json.id}/approve`, { wrapped })).status, 410);
-  assert.equal((await web()('GET', `/v1/link/${start.json.id}?poll=${start.json.poll}`)).status, 410);
+  assert.equal((await web()('GET', `/v1/link/${start.json.id}`, null, { 'X-Novelo-Poll': start.json.poll })).status, 410);
   // A bad public key never becomes a code.
   assert.equal((await web()('POST', '/v1/link', { key: 'abc' })).status, 422);
   // Only a phone approves (a token can't).
@@ -241,6 +243,60 @@ test('as páginas: mesma origem, sem script de fora; o Android sabe abrir o cód
   const al = await (await fetch(`${server.url}/.well-known/assetlinks.json`)).json();
   assert.equal(al[0].target.package_name, 'com.villamediana.novelo');
   assert.match(al[0].target.sha256_cert_fingerprints[0], /^42:8B:EC:FF/);
+});
+
+test('o nome que o celular vê não engana; o servidor não guarda o endereço do computador', async () => {
+  const mine = await lock.linkKeys();
+  const start = await web()('POST', '/v1/link', { key: mine.pub, name: 'Chrome\u202Eswodni\u0007W ' });
+  const row = server.app.db.prepare('SELECT name, ip FROM links WHERE id = ?').get(start.json.id);
+  assert.equal(row.name, 'ChromeswodniW');
+  assert.equal(row.ip, '');
+});
+
+test('um token que o computador não buscou some; um computador parado há meses é desligado', async () => {
+  const sync = server.app.sync;
+  // Read by the phone, never fetched: past the code's time, nothing of it stays (its token included).
+  const mine = await lock.linkKeys();
+  const start = await web()('POST', '/v1/link', { key: mine.pub, name: 'Esquecido' });
+  const wrapped = await lock.wrapLink(mine.pub, start.json.id, mine.secret, { space: spaceId, key: master });
+  assert.equal((await signed(phone, 'POST', `/v1/link/${start.json.id}/approve`, { wrapped })).status, 200);
+  server.app.db.prepare('UPDATE links SET created = created - 3600000 WHERE id = ?').run(start.json.id);
+  sync.prune();
+  assert.equal(server.app.db.prepare('SELECT COUNT(*) n FROM links WHERE id = ?').get(start.json.id).n, 0);
+  // Linked, then not seen for longer than SYNC_IDLE_DAYS: unlinked.
+  const c = await linkComputer('Parado');
+  assert.equal((await web(c.token)('GET', '/v1/web/me')).status, 200);
+  server.app.db.prepare('UPDATE links SET last_seen = last_seen - ? WHERE id = ?').run(91 * 24 * 3600_000, c.id);
+  sync.prune();
+  assert.equal((await web(c.token)('GET', '/v1/web/me')).status, 401);
+});
+
+test('esperas abertas têm limite; o disco nunca enche', async () => {
+  const sync = server.app.sync;
+  const c = await linkComputer('Muitas abas');
+  const head = (await web(c.token)('GET', '/v1/sync/changes?since=0')).json.head;
+  const waits = [];
+  for (let i = 0; i < sync.maxWaitsPerSpace; i++) waits.push(web(c.token)('GET', `/v1/sync/changes?since=${head}&wait=20`));
+  await sleep(150);
+  const over = await web(c.token)('GET', `/v1/sync/changes?since=${head}&wait=20`);
+  assert.equal(over.status, 429);
+  // Something new wakes them all (and frees their places).
+  const k = await lock.recordKey(keys, 'entries', 777);
+  const item = { k, base: 0, d: await lock.seal(keys, k, { t: 'entries', id: '777', r: { id: 777, title: 'acorda' } }) };
+  assert.equal((await web(c.token)('POST', '/v1/sync/push', { items: [item] })).status, 200);
+  for (const w of await Promise.all(waits)) assert.equal(w.status, 200);
+  assert.equal(sync.waits, 0);
+  // Below the free space kept on the disk: nothing more is written.
+  const keep = sync.minFree;
+  sync.minFree = Number.MAX_SAFE_INTEGER;
+  try {
+    const k2 = await lock.recordKey(keys, 'entries', 778);
+    const full = await web(c.token)('POST', '/v1/sync/push', { items: [{ k: k2, base: 0, d: await lock.seal(keys, k2, { t: 'entries', id: '778', r: { id: 778 } }) }] });
+    assert.equal(full.status, 507);
+    assert.equal((await web(c.token)('PUT', `/v1/sync/blob/${crypto.randomBytes(18).toString('base64url')}`, crypto.randomBytes(64))).status, 507);
+  } finally {
+    sync.minFree = keep;
+  }
 });
 
 test('o celular recomeça com outra chave: tudo do espaço some, computadores inclusive', async () => {

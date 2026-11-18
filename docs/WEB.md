@@ -17,23 +17,36 @@ servidor do Novelo em nome do celular (o plano e os limites são dele).
 
 ## Ligar um computador (QR code)
 
-1. O computador cria um par de chaves ECDH P-256 (a privada nunca sai do navegador) e pede um código:
+1. O computador cria um par de chaves ECDH P-256 (a privada nunca sai do navegador, nem pode ser lida)
+   e um **segredo do código** (16 bytes aleatórios), e pede um código:
    `POST /v1/link {key: <pública, 65 bytes raw, base64url>, name: "Chrome no Windows"}` →
-   `{id, poll, expires_in}`.
-2. Mostra o QR code de `https://novelo.simplyonegoal.com/web/link#<id>.<pública>` e espera:
-   `GET /v1/link/<id>?poll=<poll>&wait=25` (espera longa; `pending` até o celular ler).
+   `{id, poll, expires_in}`. O segredo **não** vai pro servidor.
+2. Mostra o QR code de `https://novelo.simplyonegoal.com/web/link#<id>.<pública>.<segredo>` e espera:
+   `GET /v1/link/<id>?wait=25` com o `poll` no cabeçalho `X-Novelo-Poll` (nunca no endereço: endereços
+   ficam em logs pelo caminho). Espera longa; `pending` até o celular ler.
 3. No celular (Ajustes › Computador › Ligar, ou a câmera comum: o endereço abre o app — App Link
-   verificado por `/.well-known/assetlinks.json`), o app lê o código, cria um par ECDH só pra essa
-   resposta e manda a chave do espaço cifrada pra pública do computador:
+   verificado por `/.well-known/assetlinks.json`), o app lê o código — só um do **seu próprio**
+   servidor, com id, pública e segredo — pede confirmação (avisando pra só ligar um código aberto por
+   você mesmo), cria um par ECDH só pra essa resposta e manda a chave do espaço cifrada pra pública do
+   computador, misturada com o segredo do código:
    `POST /v1/link/<id>/approve {wrapped: {pub, iv, ct}, owner: "Pixel da Ana"}` (assinado pelo celular).
 4. O computador recebe, **uma vez**, `{status: "linked", token, space, wrapped, owner}`, abre a chave e
    guarda (não extraível) no navegador. O `token` é a entrada dele no servidor (`Authorization: Bearer`).
 
-O código vale 10 minutos. O servidor nunca vê a chave do espaço: a chave pública do computador vai
-pelo QR code (que o servidor não troca), e a resposta só abre com a privada dele.
+O código vale 10 minutos. O servidor nunca vê a chave do espaço: a resposta só abre com a privada do
+computador. E nem um servidor comprometido consegue se passar pelo celular (mandar ao computador uma
+chave que ele conhece, pra ler o que for escrito ali): sem o segredo, que só passou pela tela e pela
+câmera, não dá pra fazer uma resposta que o computador aceite. O computador ainda confere que o espaço
+dentro da resposta é o mesmo que o servidor diz.
+
+O servidor não guarda o endereço (IP) do computador, só o nome que ele deu (sem caracteres de controle
+nem os que invertem o texto). O token fica no servidor só como hash; até o computador buscar a
+resposta, ela fica lá no máximo 10 minutos (depois disso, some com o código).
 
 Desligar: no celular, `DELETE /v1/links/<id>` (a lista: `GET /v1/links`); no computador, `DELETE /v1/link`.
-Desligado, o token dá `401 unlinked` e a página apaga o que tinha.
+Desligado, o token dá `401 unlinked` e a página apaga o banco inteiro do navegador (registros,
+arquivos, chaves, token, rascunho) e avisa as outras abertas (BroadcastChannel). Um computador sem
+usar há 90 dias (`SYNC_IDLE_DAYS`) é desligado sozinho.
 
 ## Cifra (a mesma no Kotlin e no JS)
 
@@ -44,9 +57,11 @@ Desligado, o token dá `401 unlinked` e a página apaga o que tinha.
 - **Nome de um registro**: base64url(HMAC(`key`, `"<tabela>:<id>"`)) — 43 letras.
 - **Bytes de um registro**: base64(IV 12 bytes ‖ AES-GCM(`enc`, JSON, AAD = o nome)).
 - **Arquivo**: IV ‖ AES-GCM(`blob`, bytes, AAD = o id do arquivo). Id = 18 bytes aleatórios, base64url.
-- **Ligação**: segredo = ECDH(privada de um, pública do outro); chave = HKDF-SHA256(segredo, salt =
-  o id do código, info `novelo-link-v1`) → AES-256-GCM, AAD = o id do código. Texto: JSON
-  `{space, key: base64url(32 bytes), owner}`.
+- **Ligação**: chave = HKDF-SHA256(ECDH(privada de um, pública do outro) ‖ segredo do código (16
+  bytes), salt = o id do código, info `novelo-link-v2`) → AES-256-GCM, AAD = o id do código. Texto:
+  JSON `{space, key: base64url(32 bytes), owner}`.
+- **No navegador**: as chaves derivadas são `CryptoKey` não extraíveis; os registros e o rascunho
+  ficam guardados selados (AES-GCM com a chave dos arquivos) no IndexedDB.
 
 ## Registros
 
@@ -68,6 +83,13 @@ item→captura, os resultados guardados numa captura) não precisam ser traduzid
   `409 key_mismatch`; com `reset: true` o espaço recomeça vazio (os computadores ligados caem).
 - `GET /v1/sync/changes?since=<seq>&limit=500&wait=25` → `{changes: [{k, s, d | null}], seq, more, head}`.
   `d` nulo = apagado. Com `wait`, espera até ter novidade (até 25 s).
+- Quem lê um registro confere que ele é a linha que diz ser: a tabela existe, o id da linha dentro dele
+  é o do registro e o nome dele é o HMAC desse `"<tabela>:<id>"`. Só as colunas da tabela, dos tipos de
+  uma linha; arquivos só com tipo e id válidos. O que não bate é deixado de lado.
+- **Apagados**: cada lado lembra do número (`s`) em que soube que um registro foi apagado (dele ou de
+  outro). A própria exclusão voltando com as novidades não apaga nada; a mesma linha feita de novo
+  depois (uma dose desmarcada e marcada de novo, uma ligação refeita) sobe por cima, com `base` = esse
+  número. Mudado aqui e apagado lá: apagar ganha.
 - `POST /v1/sync/push {items: [{k, base, d | null}]}` → `{results: [{k, ok, s, d?}], head}`. `base` é a
   versão (`s`) do registro que quem escreve viu por último (0 = novo). Se alguém escreveu depois, não
   grava: volta `ok: false` com o que está lá (`s`, `d`), e quem escreveu **junta campo a campo** (o que
@@ -81,4 +103,15 @@ item→captura, os resultados guardados numa captura) não precisam ser traduzid
 Celular: pedidos assinados como os outros (só o caminho é assinado; `?since=` não). Computador: token.
 
 Teto por espaço: 256 MB de registros, 8 GB de arquivos (`SYNC_RECORDS_MB`, `SYNC_FILES_MB`), 40 MB por
-arquivo (`SYNC_FILE_MB`), 10 computadores, 600 pedidos por minuto.
+arquivo (`SYNC_FILE_MB`), 10 computadores, 600 pedidos por minuto (contados antes de ler o corpo).
+No servidor todo: o disco nunca passa de 2 GB livres (`SYNC_MIN_FREE_MB`; abaixo disso, `507`), no
+máximo 256 MB de corpos sendo lidos ao mesmo tempo (`MAX_SYNC_HELD_MB`), 12 esperas longas por espaço,
+2 por código e 4000 no total (`SYNC_MAX_WAITS`), 5000 códigos abertos (`SYNC_PENDING_LINKS`), 30 códigos
+por minuto por endereço. O pedido à inteligência do computador lê no máximo o tamanho do pedido dele.
+
+## A página
+
+CSP: só scripts e estilos da própria origem, imagens e sons só dela ou `blob:`, nada de iframes, workers,
+formulários ou `base`, `frame-ancestors 'none'` e **Trusted Types** (nenhum texto vira HTML ou script).
+Fora isso: HSTS, `nosniff`, `no-referrer`, COOP/CORP, Permissions-Policy. Um arquivo aberto na página
+só ganha um tipo de uma lista (imagens, sons, vídeo, PDF, texto); o resto vai como download.

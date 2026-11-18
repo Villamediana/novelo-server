@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { chromium } from 'playwright-core';
 import { startServer, fakeUpstream, Phone, signed, sleep } from './helpers.js';
 import * as lock from '../web/src/core/crypto.js';
@@ -21,14 +22,46 @@ const now = Date.now();
 const zone = 'America/Sao_Paulo';
 const tomorrow = new Date(now + day).toLocaleDateString('sv-SE', { timeZone: zone });
 
+/** A small PNG (a colored square), to drop on the page as a photo. */
+function png(w = 64, h = 48) {
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(td));
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const rows = [];
+  for (let y = 0; y < h; y++) {
+    const row = Buffer.alloc(1 + w * 3);
+    for (let x = 0; x < w; x++) row.set([200, 90 + y, 60 + x], 1 + x * 3);
+    rows.push(row);
+  }
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))]);
+}
+
 let asked = [];
 const upstream = await fakeUpstream((json) => {
   const user = JSON.stringify(json.messages.at(-1).content);
   asked.push(user);
+  if (user.includes('image_url')) return { text: 'Um recibo de mercado; total R$ 32,00.' };
+  // What she wrote (the end of the context), not what else the context has.
+  const content = json.messages.at(-1).content;
+  const text = typeof content === 'string' ? content : content.map((p) => p.text ?? '').join('');
+  const said = /O QUE ELA ESCREVEU:\n"([^"]*)"/.exec(text)?.[1] ?? '';
+  if (said.includes('recibo do mercado')) return { text: JSON.stringify({ reply: 'Guardei o recibo.', create: [{ kind: 'note', title: 'Recibo do mercado', body: 'Total R$ 32,00', photos: true }] }) };
+  if (said.includes('comprar pão')) return { text: JSON.stringify({ reply: 'Anotei o pão.', create: [{ kind: 'task', title: 'Comprar pão', due: tomorrow }] }) };
   return { text: JSON.stringify({ reply: 'Anotei: ligar pro Pedro amanhã às 9.', create: [{ kind: 'task', title: 'Ligar pro Pedro sobre o contrato', due: `${tomorrow}T09:00`, remind_at: `${tomorrow}T09:00`, steps: ['achar o número dele'], category: 'Trabalho', entities: [{ name: 'Pedro', type: 'person' }] }] }) };
 });
 const server = await startServer({ upstream });
 server.route('think', 'modelo-de-teste');
+server.route('see', 'modelo-de-teste');
 const phone = new Phone(server.url);
 assert.equal((await phone.register()).status, 200);
 const master = globalThis.crypto.getRandomValues(new Uint8Array(32));
@@ -85,14 +118,17 @@ try {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-  let pub = null;
-  page.on('request', (r) => { if (r.url().endsWith('/v1/link') && r.method() === 'POST') pub = JSON.parse(r.postData()).key; });
+
   const linkRes = page.waitForResponse((r) => r.url().endsWith('/v1/link') && r.request().method() === 'POST');
   await page.goto(`${server.url}/web/`);
   const link = await (await linkRes).json();
   await page.waitForSelector('.qr svg');
   await shot(page, '01-link');
-  const wrapped = await lock.wrapLink(pub, link.id, { space, key: master, owner: 'Pixel da Ana' });
+  // What the phone's camera reads: the address in the QR code (the secret is only there).
+  const code = await page.locator('.qr').getAttribute('data-code');
+  const [, id, pub, secret] = /#([^.]+)\.([^.]+)\.([^.]+)$/.exec(code);
+  assert.equal(id, link.id);
+  const wrapped = await lock.wrapLink(pub, link.id, secret, { space, key: master, owner: 'Pixel da Ana' });
   assert.equal((await signed(phone, 'POST', `/v1/link/${link.id}/approve`, { wrapped, owner: 'Pixel da Ana' })).status, 200);
 
   // ---- linked: what the phone has is on the page
@@ -158,6 +194,78 @@ try {
   assert.ok(done, 'the phone sees it done');
   await shot(page, '10-tasks-after');
 
+  const latest = async () => [...(await phoneAll()).values()].map((x) => x.rec).filter(Boolean);
+  const until = async (what, find) => {
+    for (let i = 0; i < 80; i++) {
+      const got = find(await latest());
+      if (got) return got;
+      await sleep(250);
+    }
+    assert.fail(`o celular não recebeu: ${what}`);
+  };
+
+  // ---- a dose ticked on the page: taken on the phone
+  await page.click('button.nav:has-text("Remédios")');
+  await page.locator('.card:has-text("Amoxicilina") [aria-label="08:00"]').first().click();
+  await until('a dose das 8', (rs) => rs.find((r) => r.t === 'med_taken' && r.r.medId === 1 && r.r.at === at(8)));
+
+  // ---- a photo with words: up encrypted, described, kept with the note
+  await page.click('button.nav:has-text("Escrever")');
+  await page.setInputFiles('input[type=file][accept="image/*"]', { name: 'recibo.png', mimeType: 'image/png', buffer: png() });
+  await page.fill('textarea', 'recibo do mercado de hoje');
+  await page.keyboard.press('Control+Enter');
+  await page.waitForSelector('.answer >> text=Guardei o recibo.', { timeout: 20_000 });
+  await shot(page, '10b-photo');
+  const note = await until('a nota do recibo', (rs) => rs.find((r) => r.t === 'entries' && r.r.title === 'Recibo do mercado'));
+  const photo = await until('a foto', (rs) => rs.find((r) => r.t === 'captures' && r.r.source === 'photo' && r.r.media?.image && r.r.state === 'done'));
+  assert.ok(photo.r.description?.includes('recibo'), 'described');
+  const sealed = (await signed(phone, 'GET', `/v1/sync/blob/${photo.r.media.image.id}`)).data;
+  const bytes = await lock.openBlob(keys, photo.r.media.image.id, sealed);
+  assert.ok(bytes.length > 100, 'the photo opens with the key');
+  assert.ok((await latest()).some((r) => r.t === 'captures' && r.r.transcript?.includes('recibo do mercado') && JSON.parse(r.r.outcomes).some((o) => o.entryId === Number(note.id))));
+
+  // ---- no internet: it waits in the line, and goes by itself when it's back
+  await ctx.setOffline(true);
+  await page.fill('textarea', 'comprar pão amanhã');
+  await page.keyboard.press('Control+Enter');
+  await page.waitForSelector('text=Sem internet · vai sozinho quando voltar', { timeout: 20_000 });
+  await shot(page, '10c-offline');
+  await ctx.setOffline(false);
+  try {
+    await page.waitForSelector('.answer >> text=Anotei o pão.', { timeout: 40_000 });
+  } catch (e) {
+    await page.screenshot({ path: path.join(out, '99-debug.png') });
+    console.log('DEBUG line:', await page.locator('.line').allInnerTexts(), 'answer:', await page.locator('.answer').allInnerTexts(), 'errors:', errors, 'online:', await page.evaluate(() => navigator.onLine));
+    console.log('asked:', JSON.stringify(asked.map((a) => a.slice(-120))));
+    console.log('phone:', JSON.stringify((await latest()).filter((r) => r.t === 'captures' || /pão/.test(r.r.title ?? '')).map((r) => [r.t, r.id, r.r.state, r.r.transcript ?? r.r.title, r.r.reply])));
+    throw e;
+  }
+  await until('o pão', (rs) => rs.find((r) => r.t === 'entries' && r.r.title === 'Comprar pão'));
+  assert.equal(await page.locator('text=Sem internet · vai sozinho quando voltar').count(), 0);
+
+  // ---- deleted, then "Desfazer": it stays (here and on the phone)
+  await page.click('button.nav:has-text("Notas")');
+  await page.click('text=Aniversário da Ana: piquenique');
+  await page.waitForSelector('.panel .title-edit');
+  await page.click('.panel button[aria-label="Apagar"]');
+  await page.click('.toast button:has-text("Desfazer")');
+  await page.waitForSelector('.panel .title-edit');
+  await page.keyboard.press('Escape');
+  await until('a nota de volta', (rs) => rs.find((r) => r.t === 'entries' && r.r.title === 'Aniversário da Ana: piquenique'));
+
+  // ---- a dose unticked and ticked again (the same row, made again after it went): taken on the phone
+  await page.click('button.nav:has-text("Remédios")');
+  const dose8 = page.locator('.card:has-text("Amoxicilina") [aria-label="08:00"]').first();
+  await dose8.click();
+  await until('a dose desmarcada', (rs) => !rs.some((r) => r.t === 'med_taken' && r.r.at === at(8)));
+  await dose8.click();
+  await until('a dose marcada de novo', (rs) => rs.find((r) => r.t === 'med_taken' && r.r.at === at(8)));
+  await sleep(1500);
+  assert.ok((await latest()).some((r) => r.t === 'med_taken' && r.r.at === at(8)), 'it stays taken');
+  assert.equal(await dose8.getAttribute('aria-pressed'), 'true');
+  // ...and what the phone wrote meanwhile is still there: nothing written on the page was lost.
+  assert.ok((await latest()).some((r) => r.t === 'entries' && r.id === '2' && r.r.status === 'done'));
+
   // ---- dark
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.reload();
@@ -165,13 +273,27 @@ try {
   await page.click('button.nav:has-text("Hoje")');
   await sleep(300);
   await shot(page, '11-today-dark');
-  assert.deepEqual(errors.filter((e) => !/favicon/.test(e)), [], 'no errors on the page');
+  assert.deepEqual(errors.filter((e) => !/favicon|ERR_INTERNET_DISCONNECTED/.test(e)), [], 'no errors on the page (but the ones while offline)');
 
   // ---- a phone opening the page: get the app
   const phonePage = await (await browser.newContext({ viewport: { width: 400, height: 860 }, locale: 'pt-BR', userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36' })).newPage();
   await phonePage.goto(`${server.url}/web/link`);
   await phonePage.waitForSelector('text=Baixar o Novelo');
   await shot(phonePage, '12-phone');
+
+  // ---- unlinked from Ajustes: nothing of it stays in the browser, the server forgets it
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.click('button.nav:has-text("Ajustes")');
+  await page.click('button:has-text("Desligar este computador")');
+  await page.click('button:has-text("Clique de novo pra desligar")');
+  await page.waitForSelector('text=Este computador foi desligado do celular.');
+  // The page's database is gone whole (records, files, keys, token, draft); only the look stays.
+  const dbs = await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
+  assert.ok(!dbs.includes('novelo-web'), `the browser kept nothing: ${JSON.stringify(dbs)}`);
+  const kept = await page.evaluate(() => Object.keys(localStorage));
+  assert.deepEqual(kept.filter((k) => k !== 'novelo-prefs'), []);
+  assert.deepEqual((await signed(phone, 'GET', '/v1/links')).json.links, []);
+  await shot(page, '13-unlinked');
   console.log(`ok: ${fs.readdirSync(out).length} telas em ${out}`);
 } finally {
   await browser.close();

@@ -8,7 +8,6 @@ import { FileKind } from '../core/brain.js';
 import { EntryCard } from './lists.jsx';
 import { Icon, IconBtn, Photo, useApp, useData, grow } from './kit.jsx';
 
-const DRAFT = 'novelo-draft';
 const MAX_FILE = 38 * 1024 * 1024;
 
 /** A photo made small (the longest side [side] px) as a JPEG; null when the browser can't read it. */
@@ -33,7 +32,8 @@ export function WritePage() {
   const app = useApp();
   const data = useData();
   const { t } = app;
-  const [text, setText] = useState(() => { try { return localStorage.getItem(DRAFT) ?? ''; } catch { return ''; } });
+  const [text, setText] = useState('');
+  const draftIn = useRef(false);
   const [staged, setStaged] = useState([]); // [{key, file, kind, preview}]
   const [drop, setDrop] = useState(false);
   const [mind, setMind] = useState({ line: app.mind.line, answer: null });
@@ -42,7 +42,22 @@ export function WritePage() {
   const fileInput = useRef(null);
   useEffect(() => app.onMind(setMind), []);
   useEffect(() => { grow(area.current); area.current?.focus(); }, []);
-  useEffect(() => { try { localStorage.setItem(DRAFT, text); } catch { /* private window */ } }, [text]);
+  // What she was writing, kept sealed in the browser (like everything else here) until it goes.
+  useEffect(() => {
+    let live = true;
+    app.sync.loadDraft().then((d) => {
+      if (!live) return;
+      if (d) setText((x) => x || d);
+      draftIn.current = true;
+    });
+    return () => { live = false; };
+  }, []);
+  useEffect(() => {
+    if (!draftIn.current) return undefined;
+    const timer = setTimeout(() => app.sync.saveDraft(text).catch(() => {}), 300);
+    return () => clearTimeout(timer);
+  }, [text]);
+  useEffect(() => { grow(area.current); }, [text]);
   useEffect(() => () => staged.forEach((s) => s.preview && URL.revokeObjectURL(s.preview)), []);
 
   function add(files) {

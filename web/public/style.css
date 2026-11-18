@@ -221,7 +221,7 @@ a { color: var(--accent); }
 .phone { max-width: 400px; text-align: center; }
 .phone h1 { font: 400 32px/1.15 var(--serif); margin: 22px 0 10px; }
 .phone .lead { color: var(--muted); font-size: 17px; }
-.big-btn { display: inline-flex; padding: 16px 26px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-weight: 700; text-decoration: none; margin: 18px 0 12px; }
+.big-btn { display: inline-flex; padding: 16px 26px; border: 0; border-radius: 999px; background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 700; text-decoration: none; margin: 18px 0 12px; cursor: pointer; }
 
 .set { display: flex; flex-direction: column; gap: 14px; }
 .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
