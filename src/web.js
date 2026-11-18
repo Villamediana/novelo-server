@@ -52,7 +52,7 @@ const HEADERS = {
 
 export class WebPages {
   constructor({ config, dir } = {}) {
-    this.dir = dir ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
+    this.dir = dir ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'web', 'public');
     // The app (and its signing certificate) Android opens novelo…/web/link/ in.
     this.pkg = config?.get('APP_PACKAGE', 'com.villamediana.novelo') ?? 'com.villamediana.novelo';
     this.cert = config?.get('APP_CERT_SHA256', '428becffc007c5063d8e3ea5122a2d7e712a965c445ae70b1384024def1d4858') ?? '';

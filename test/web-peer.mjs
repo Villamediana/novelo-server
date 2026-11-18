@@ -11,7 +11,7 @@
 //   node test/web-peer.mjs <state> blob-get <id>            → {data: base64} | {missing: true}
 //   node test/web-peer.mjs <state> me                       → {status}
 import fs from 'node:fs';
-import * as lock from '../web/js/crypto.js';
+import * as lock from '../web/src/core/crypto.js';
 
 const [stateFile, cmd, ...args] = process.argv.slice(2);
 const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : {};

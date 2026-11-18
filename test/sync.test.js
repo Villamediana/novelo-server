@@ -5,7 +5,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { startServer, fakeUpstream, Phone, signed, sleep } from './helpers.js';
-import * as lock from '../web/js/crypto.js';
+import * as lock from '../web/src/core/crypto.js';
 
 let upstream, server, phone, keys, master, spaceId;
 
@@ -233,7 +233,7 @@ test('as páginas: mesma origem, sem script de fora; o Android sabe abrir o cód
   assert.equal((await fetch(`${server.url}/web/`, { headers: { 'If-None-Match': etag } })).status, 304);
   // A page of the app (the link from the QR code) is the app itself.
   assert.equal((await fetch(`${server.url}/web/link`)).status, 200);
-  assert.equal((await fetch(`${server.url}/web/js/crypto.js`)).headers.get('content-type'), 'text/javascript; charset=utf-8');
+  assert.equal((await fetch(`${server.url}/web/app.js`)).headers.get('content-type'), 'text/javascript; charset=utf-8');
   assert.equal((await fetch(`${server.url}/web/%2e%2e/package.json`)).status, 404);
   assert.equal((await fetch(`${server.url}/web/nada.js`)).status, 404);
   const root = await fetch(`${server.url}/`, { redirect: 'manual' });
