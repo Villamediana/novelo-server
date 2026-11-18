@@ -63,8 +63,10 @@ export function prepare(job, body) {
 }
 
 export class Api {
-  constructor({ config, settings, devices, limits, router, telemetry, plans, now = Date.now, heartbeatMs = HEARTBEAT }) {
+  constructor({ config, settings, devices, limits, router, telemetry, plans, sync, web, now = Date.now, heartbeatMs = HEARTBEAT }) {
     this.plans = plans;
+    this.sync = sync;
+    this.web = web;
     this.heartbeatMs = heartbeatMs;
     this.config = config;
     this.settings = settings;
@@ -80,6 +82,9 @@ export class Api {
     this.maxHeld = config.int('MAX_HELD_MB', 1024) * 1024 * 1024;
     this.maxOpen = config.int('MAX_OPEN', 20_000);
     this.held = 0;
+    // The sync's bodies being read at once (files up to 40 MB each), in memory.
+    this.maxSyncHeld = config.int('MAX_SYNC_HELD_MB', 160) * 1024 * 1024;
+    this.syncHeld = 0;
     this.open = 0;
     this.runs = new Map(); // device:request → { promise, done, at, size, listeners, gone }
     this.kept = 0;
@@ -124,6 +129,14 @@ export class Api {
         req.resume();
         throw new HttpError(403, 'https_required', 'Use https.');
       }
+      // The Novelo on the computer (its pages), and what Android checks to open its links in the app.
+      if ((req.method === 'GET' || req.method === 'HEAD') && this.web?.serves(path)) {
+        req.resume();
+        return this.web.serve(req, res, path);
+      }
+      if (this.sync && (path.startsWith('/v1/sync/') || path.startsWith('/v1/link') || path.startsWith('/v1/web/'))) {
+        return await this.syncRoute(req, res, path);
+      }
       if (req.method === 'POST' && path === '/v1/devices/challenge') {
         this.knock(req);
         req.resume();
@@ -161,25 +174,41 @@ export class Api {
     return { ...who, raw };
   }
 
-  async ask(req, res, path, jobKey) {
+  /** [web]: a computer asking in its phone's name, its body already read ([pre]). */
+  async ask(req, res, path, jobKey, web = null, pre = null) {
     if (this.settings.get('paused')) throw new HttpError(503, 'paused', 'Em manutenção.', { retry_after: 300 });
     const job = this.router.jobs.get(jobKey);
     if (!job || !job.enabled) throw new HttpError(404, 'not_found', 'Pedido desconhecido.');
-    // Before reading megabytes: is it a phone we know?
-    const claimed = String(req.headers['x-novelo-device'] ?? '');
-    const known = /^[A-Za-z0-9_-]{24}$/.test(claimed) ? this.devices.load(claimed) : null;
-    if (!known) throw new HttpError(401, 'unknown_device', 'Aparelho não registrado.');
-    if (known.status === 'blocked') throw new HttpError(403, 'blocked', 'Este aparelho está bloqueado.');
-    const declared = Number(req.headers['content-length'] || 0);
+    if (web) {
+      // A computer linked to a phone asks in the phone's name: its plan, its limits.
+      const owner = this.devices.load(web.device);
+      if (owner?.status === 'blocked') throw new HttpError(403, 'blocked', 'Este aparelho está bloqueado.');
+    } else {
+      // Before reading megabytes: is it a phone we know?
+      const claimed = String(req.headers['x-novelo-device'] ?? '');
+      const known = /^[A-Za-z0-9_-]{24}$/.test(claimed) ? this.devices.load(claimed) : null;
+      if (!known) throw new HttpError(401, 'unknown_device', 'Aparelho não registrado.');
+      if (known.status === 'blocked') throw new HttpError(403, 'blocked', 'Este aparelho está bloqueado.');
+    }
+    const declared = pre ? pre.length : Number(req.headers['content-length'] || 0);
     if (this.open >= this.maxOpen || this.held + declared > this.maxHeld) throw new HttpError(503, 'busy', 'Servidor cheio.', { retry_after: 15 });
 
     this.open++;
     let size = 0;
     try {
-      const raw = await readBody(req, job.max_body_kb * 1024);
+      if (pre && pre.length > job.max_body_kb * 1024) throw new HttpError(413, 'too_large', 'Pedido grande demais.');
+      const raw = pre ?? await readBody(req, job.max_body_kb * 1024);
       size = raw.length;
       this.held += size;
-      const { id: device, request, install } = this.devices.authenticate(req, path, crypto.createHash('sha256').update(raw).digest('hex'));
+      let device, request, install;
+      if (web) {
+        request = String(req.headers['x-novelo-request'] ?? '');
+        if (!/^[A-Za-z0-9_-]{16,64}$/.test(request)) throw new HttpError(422, 'bad_request', 'X-Novelo-Request inválido.');
+        device = `web:${web.link}`;
+        install = web.install;
+      } else {
+        ({ id: device, request, install } = this.devices.authenticate(req, path, crypto.createHash('sha256').update(raw).digest('hex')));
+      }
       // The trial is over and it isn't Novelo+: the app goes on with its own intelligence (the phone's, or an API).
       this.plans.need(install);
       const key = `${device}:${request}`;
@@ -293,3 +322,151 @@ export class Api {
     sendJson(res, status, { error: { code: r.code, message: messages[r.code] ?? 'Não deu.', ...(retry ? { retry_after: retry } : {}) } }, retry ? { 'Retry-After': String(retry) } : {});
   }
 }
+
+// ------------------------------------------------------------------ the Novelo on the computer
+
+const SYNC_BODY = 8 * 1024 * 1024;
+
+/** The sync and linking routes (see src/sync.js and docs/WEB.md). */
+Api.prototype.syncRoute = async function syncRoute(req, res, path) {
+  const sync = this.sync;
+  const url = new URL(req.url, 'http://x');
+  const q = (name) => url.searchParams.get(name);
+  const num = (name, fallback) => {
+    const n = Number.parseInt(q(name) ?? '', 10);
+    return Number.isSafeInteger(n) ? n : fallback;
+  };
+  const aborted = new AbortController();
+  res.on('close', () => aborted.abort());
+
+  // A computer, by its code's link (no token yet).
+  if (req.method === 'POST' && path === '/v1/link') {
+    const ip = this.knock(req);
+    sync.rate(`ip:${ip}`, 30);
+    const body = parseJson(await readBody(req, 4096));
+    return sendJson(res, 200, sync.startLink(body.key, body.name));
+  }
+  const poll = /^\/v1\/link\/([A-Za-z0-9_-]{22,64})$/.exec(path);
+  if (req.method === 'GET' && poll) {
+    sync.rate(`ip:${clientIp(req, this.trust)}`, 120);
+    req.resume();
+    // The poll secret comes in a header: never in the address (addresses are written down on the way).
+    const secret = req.headers['x-novelo-poll'];
+    return sendJson(res, 200, await sync.pollLink(poll[1], typeof secret === 'string' ? secret : null, Math.min(Math.max(num('wait', 0), 0), 25) * 1000, aborted.signal));
+  }
+
+  // Who asks: a computer (its token) or the phone (its signature). The computer's body isn't signed.
+  const bearer = typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ');
+  let who;
+  let raw = Buffer.alloc(0);
+  const webAsk = /^\/v1\/web\/ask\/([a-z][a-z0-9_]{0,31})$/.exec(path);
+  const askLimit = webAsk ? (this.router.jobs.get(webAsk[1])?.max_body_kb ?? 0) * 1024 : 0;
+  const limit = req.method === 'PUT' ? sync.maxBlob + 64 : req.method === 'POST' ? (webAsk ? askLimit : SYNC_BODY) : 0;
+  // Bodies held in memory at once (files up to 40 MB each): past a total, "busy" before reading more.
+  const declared = Number(req.headers['content-length'] || 0);
+  if (limit && this.syncHeld + Math.min(declared || limit, limit) > this.maxSyncHeld) throw new HttpError(503, 'busy', 'Servidor cheio.', { retry_after: 15 });
+  const hold = limit ? Math.min(declared || limit, limit) : 0;
+  this.syncHeld += hold;
+  try {
+    if (bearer) {
+      who = sync.web(req);
+      // Counted before the body is read: a computer can't make the server read megabytes past its limit.
+      sync.rate(who.space);
+      raw = limit ? await readBody(req, limit) : (req.resume(), raw);
+    } else {
+      const s = await this.signed(req, path, limit);
+      raw = s.raw;
+      who = { install: s.install, device: s.id, phone: true };
+      who.space = sync.spaceOf(s.install)?.id ?? null;
+      sync.rate(who.space ?? who.install);
+    }
+  } finally {
+    this.syncHeld -= hold;
+  }
+
+  if (path.startsWith('/v1/web/')) {
+    if (!who.link) throw new HttpError(403, 'forbidden', 'Só para o computador.');
+    if (req.method === 'GET' && path === '/v1/web/me') {
+      return sendJson(res, 200, { plan: this.plans.of(who.install), link: who.link, name: who.name, now: this.now() });
+    }
+    const ask = /^\/v1\/web\/ask\/([a-z][a-z0-9_]{0,31})$/.exec(path);
+    if (req.method === 'POST' && ask) {
+      return await this.ask(req, res, path, ask[1], who, raw);
+    }
+    throw new HttpError(404, 'not_found', 'Não existe.');
+  }
+
+  // Linking, from the phone.
+  const approve = /^\/v1\/link\/([A-Za-z0-9_-]{22,64})\/approve$/.exec(path);
+  if (req.method === 'POST' && approve) {
+    if (!who.phone) throw new HttpError(403, 'forbidden', 'Só o celular liga um computador.');
+    const body = parseJson(raw);
+    return sendJson(res, 200, sync.approveLink(who.install, approve[1], body.wrapped, body.owner));
+  }
+  if (req.method === 'DELETE' && path === '/v1/link') {
+    if (!who.link) throw new HttpError(403, 'forbidden', 'Só para o computador.');
+    sync.unlink(who.space, who.link);
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // The space.
+  if (req.method === 'POST' && path === '/v1/sync/space') {
+    if (!who.phone) throw new HttpError(403, 'forbidden', 'Só o celular abre o espaço.');
+    const body = parseJson(raw);
+    return sendJson(res, 200, sync.open(who.install, who.device, body.key_check, body.reset === true));
+  }
+  if (req.method === 'DELETE' && path === '/v1/sync/space') {
+    if (!who.phone) throw new HttpError(403, 'forbidden', 'Só o celular apaga o espaço.');
+    if (who.space) sync.erase(who.space);
+    return sendJson(res, 200, { ok: true });
+  }
+  if (!who.space) throw new HttpError(409, 'no_space', 'O celular ainda não abriu o espaço.');
+  if (req.method === 'GET' && path === '/v1/links') {
+    if (!who.phone) throw new HttpError(403, 'forbidden', 'Só o celular vê os computadores.');
+    return sendJson(res, 200, { links: sync.links(who.space) });
+  }
+  const unlink = /^\/v1\/links\/([A-Za-z0-9_-]{22,64})$/.exec(path);
+  if (req.method === 'DELETE' && unlink) {
+    if (!who.phone) throw new HttpError(403, 'forbidden', 'Só o celular desliga um computador.');
+    return sendJson(res, 200, { ok: sync.unlink(who.space, unlink[1]) });
+  }
+  if (req.method === 'GET' && path === '/v1/sync/changes') {
+    const since = Math.max(num('since', 0), 0);
+    const wait = Math.min(Math.max(num('wait', 0), 0), 25) * 1000;
+    if (wait) await sync.waitFor(who.space, since, wait, aborted.signal);
+    if (res.destroyed) return;
+    return sendJson(res, 200, sync.changes(who.space, since, num('limit', 500)));
+  }
+  if (req.method === 'POST' && path === '/v1/sync/push') {
+    const body = parseJson(raw);
+    return sendJson(res, 200, sync.push(who.space, body.items));
+  }
+  if (req.method === 'POST' && path === '/v1/sync/blobs/have') {
+    const body = parseJson(raw);
+    if (!Array.isArray(body.ids) || body.ids.length > 5000) throw new HttpError(422, 'bad_request', 'ids: até 5000.');
+    return sendJson(res, 200, { have: body.ids.filter((id) => typeof id === 'string' && sync.hasBlob(who.space, id)) });
+  }
+  if (req.method === 'POST' && path === '/v1/sync/blobs/keep') {
+    if (!who.phone) throw new HttpError(403, 'forbidden', 'Só o celular decide o que fica.');
+    const body = parseJson(raw);
+    return sendJson(res, 200, sync.keepBlobs(who.space, body.ids));
+  }
+  const blob = /^\/v1\/sync\/blob\/([A-Za-z0-9_-]{22,64})$/.exec(path);
+  if (blob && req.method === 'PUT') {
+    sync.putBlob(who.space, blob[1], raw);
+    return sendJson(res, 200, { ok: true, size: raw.length });
+  }
+  if (blob && req.method === 'GET') {
+    const bytes = sync.getBlob(who.space, blob[1]);
+    if (!bytes) throw new HttpError(404, 'not_found', 'Arquivo não existe.');
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': bytes.length,
+      // Encrypted and never changed under the same name: the browser may keep it.
+      'Cache-Control': 'private, max-age=31536000, immutable',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return res.end(bytes);
+  }
+  throw new HttpError(404, 'not_found', 'Não existe.');
+};
