@@ -47,10 +47,15 @@ function png(w = 64, h = 48) {
 }
 
 let asked = [];
+const heardWith = []; // what the transcription was asked with (the system message)
 const upstream = await fakeUpstream((json) => {
   const user = JSON.stringify(json.messages.at(-1).content);
   asked.push(user);
   if (user.includes('image_url')) return { text: 'Um recibo de mercado; total R$ 32,00.' };
+  if (user.includes('input_audio')) {
+    heardWith.push(json.messages[0].content);
+    return { text: 'comprar leite e ovos' };
+  }
   // What she wrote (the end of the context), not what else the context has.
   const content = json.messages.at(-1).content;
   const text = typeof content === 'string' ? content : content.map((p) => p.text ?? '').join('');
@@ -62,6 +67,7 @@ const upstream = await fakeUpstream((json) => {
 const server = await startServer({ upstream });
 server.route('think', 'modelo-de-teste');
 server.route('see', 'modelo-de-teste');
+server.route('hear', 'modelo-de-teste');
 const phone = new Phone(server.url);
 assert.equal((await phone.register()).status, 200);
 const master = globalThis.crypto.getRandomValues(new Uint8Array(32));
@@ -106,14 +112,15 @@ await phonePut('entries', [
 ]);
 await phonePut('meds', [{ id: 1, name: 'Amoxicilina', dose: '1 comprimido', strength: '500 mg', times: '["08:00","16:00","23:59"]', startsAt: now - 2 * day, endsAt: now + 5 * day, createdAt: now - 2 * day, updatedAt: now - 2 * day, person: 'Cooper' }]);
 
-const browser = await chromium.launch({ executablePath: chrome, args: ['--no-sandbox'] });
+// A microphone of its own (a tone), and no asking for it.
+const browser = await chromium.launch({ executablePath: chrome, args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 const shot = async (page, name) => {
   await sleep(450); // the screen's own movement settles first
   await page.screenshot({ path: path.join(out, `${name}.png`) });
 };
 try {
   // ---- the computer shows its code; the phone reads it
-  const ctx = await browser.newContext({ viewport: { width: 1360, height: 860 }, timezoneId: zone, locale: 'pt-BR' });
+  const ctx = await browser.newContext({ viewport: { width: 1360, height: 860 }, timezoneId: zone, locale: 'pt-BR', permissions: ['microphone'] });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
@@ -223,6 +230,21 @@ try {
   const bytes = await lock.openBlob(keys, photo.r.media.image.id, sealed);
   assert.ok(bytes.length > 100, 'the photo opens with the key');
   assert.ok((await latest()).some((r) => r.t === 'captures' && r.r.transcript?.includes('recibo do mercado') && JSON.parse(r.r.outcomes).some((o) => o.entryId === Number(note.id))));
+
+  // ---- speaking: the microphone, then the words in the box (she reads them, then sends)
+  await page.fill('textarea', '');
+  await page.click('button.mic');
+  await page.waitForSelector('.rec .rec-dot');
+  await sleep(1600);
+  await shot(page, '10g-speaking');
+  await page.click('button.mic');
+  await page.waitForFunction(() => document.querySelector('.write textarea')?.value === 'comprar leite e ovos', null, { timeout: 20_000 });
+  assert.ok(asked.some((u) => u.includes('input_audio') && u.includes('"format":"wav"')), 'a WAV went to the server');
+  assert.ok(heardWith.some((sys) => String(sys).startsWith('Transcribe exactly what is said')), 'asked as the phone asks');
+  // The box takes the height there is.
+  const box = await page.locator('.write').boundingBox();
+  assert.ok(box.height > 400, `the box is ${box.height}px tall`);
+  await page.fill('textarea', '');
 
   // ---- no internet: it waits in the line, and goes by itself when it's back
   await ctx.setOffline(true);
