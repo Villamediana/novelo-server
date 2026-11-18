@@ -127,7 +127,8 @@ export class Phone {
 /** Any signed request of a phone: [body] a Buffer, a string or nothing. Returns { status, json, data }. */
 export async function signed(phone, method, path, body, headers = {}) {
   const raw = body === undefined ? Buffer.alloc(0) : Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
-  const res = await fetch(phone.url + path, { method, headers: { ...phone.headers(path, raw, { method }), ...headers }, body: raw.length ? raw : undefined });
+  // What is signed is the path (the query, like ?since=, is not: the server checks the path alone).
+  const res = await fetch(phone.url + path, { method, headers: { ...phone.headers(path.split('?')[0], raw, { method }), ...headers }, body: raw.length ? raw : undefined });
   const data = Buffer.from(await res.arrayBuffer());
   let json = null;
   try {
