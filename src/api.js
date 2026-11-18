@@ -83,7 +83,7 @@ export class Api {
     this.maxOpen = config.int('MAX_OPEN', 20_000);
     this.held = 0;
     // The sync's bodies being read at once (files up to 40 MB each), in memory.
-    this.maxSyncHeld = config.int('MAX_SYNC_HELD_MB', 256) * 1024 * 1024;
+    this.maxSyncHeld = config.int('MAX_SYNC_HELD_MB', 160) * 1024 * 1024;
     this.syncHeld = 0;
     this.open = 0;
     this.runs = new Map(); // device:request → { promise, done, at, size, listeners, gone }

@@ -105,7 +105,7 @@ Celular: pedidos assinados como os outros (só o caminho é assinado; `?since=` 
 Teto por espaço: 256 MB de registros, 8 GB de arquivos (`SYNC_RECORDS_MB`, `SYNC_FILES_MB`), 40 MB por
 arquivo (`SYNC_FILE_MB`), 10 computadores, 600 pedidos por minuto (contados antes de ler o corpo).
 No servidor todo: o disco nunca passa de 2 GB livres (`SYNC_MIN_FREE_MB`; abaixo disso, `507`), no
-máximo 256 MB de corpos sendo lidos ao mesmo tempo (`MAX_SYNC_HELD_MB`), 12 esperas longas por espaço,
+máximo 160 MB de corpos sendo lidos ao mesmo tempo (`MAX_SYNC_HELD_MB`; o serviço tem 1,5 GB), 12 esperas longas por espaço,
 2 por código e 4000 no total (`SYNC_MAX_WAITS`), 5000 códigos abertos (`SYNC_PENDING_LINKS`), 30 códigos
 por minuto por endereço. O pedido à inteligência do computador lê no máximo o tamanho do pedido dele.
 
