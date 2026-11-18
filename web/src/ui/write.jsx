@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from 'react';
 import { newId } from '../core/data.js';
 import { newId as blobId } from '../core/crypto.js';
 import { FileKind } from '../core/brain.js';
+import { Recorder, transcribe, MAX_S } from '../core/voice.js';
 import { EntryCard } from './lists.jsx';
-import { Icon, IconBtn, Photo, useApp, useData, grow } from './kit.jsx';
+import { Icon, IconBtn, Photo, useApp, useData } from './kit.jsx';
 
 const MAX_FILE = 38 * 1024 * 1024;
 
@@ -41,7 +42,14 @@ export function WritePage() {
   const photoInput = useRef(null);
   const fileInput = useRef(null);
   useEffect(() => app.onMind(setMind), []);
-  useEffect(() => { grow(area.current); area.current?.focus(); }, []);
+  const speakRef = useRef(null);
+  speakRef.current = speak;
+  useEffect(() => {
+    const key = (e) => { if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'Space') { e.preventDefault(); speakRef.current?.(); } };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
+  useEffect(() => { area.current?.focus(); }, []);
   // What she was writing, kept sealed in the browser (like everything else here) until it goes.
   useEffect(() => {
     let live = true;
@@ -57,8 +65,69 @@ export function WritePage() {
     const timer = setTimeout(() => app.sync.saveDraft(text).catch(() => {}), 300);
     return () => clearTimeout(timer);
   }, [text]);
-  useEffect(() => { grow(area.current); }, [text]);
   useEffect(() => () => staged.forEach((s) => s.preview && URL.revokeObjectURL(s.preview)), []);
+
+  // Speaking: the microphone while the button is on, then the words into the box (she reads, then sends).
+  const [rec, setRec] = useState(null); // {secs, level}
+  const [hearing, setHearing] = useState(null); // {i, n}
+  const recorder = useRef(null);
+  useEffect(() => () => { recorder.current?.stop(); }, []);
+  useEffect(() => {
+    if (!rec) return undefined;
+    const timer = setInterval(() => {
+      const r = recorder.current;
+      if (!r) return;
+      setRec((x) => (x ? { ...x, secs: r.seconds } : x));
+      if (r.seconds >= MAX_S) speak();
+    }, 250);
+    return () => clearInterval(timer);
+  }, [!!rec]);
+
+  async function speak() {
+    if (hearing) return;
+    if (!recorder.current) {
+      const r = new Recorder();
+      try {
+        await r.start((level) => setRec((x) => (x ? { ...x, level } : x)));
+      } catch (e) {
+        app.toast(e?.name === 'NotAllowedError' || e?.name === 'SecurityError' ? t('micDenied') : t('micNone'));
+        return;
+      }
+      recorder.current = r;
+      setRec({ secs: 0, level: 0 });
+      return;
+    }
+    const r = recorder.current;
+    recorder.current = null;
+    setRec(null);
+    const samples = await r.stop();
+    setHearing({ i: 0, n: 1 });
+    try {
+      const words = await transcribe(samples, (body) => app.api.ask('hear', body), (i, n) => setHearing({ i, n }));
+      if (!words) {
+        app.toast(t('micNothing'));
+      } else {
+        setText((x) => (x.trim() ? `${x.replace(/\s+$/, '')}${/[.!?…]$/.test(x.trim()) ? ' ' : '\n'}${words}` : words));
+        requestAnimationFrame(() => {
+          const el = area.current;
+          if (!el) return;
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+          el.scrollTop = el.scrollHeight;
+        });
+      }
+    } catch (e) {
+      app.toast(e?.status === 0 ? t('micOffline') : e?.message ? `${t('micFailed')} ${e.message}` : t('micFailed'));
+    } finally {
+      setHearing(null);
+    }
+  }
+
+  function cancelSpeak() {
+    recorder.current?.stop();
+    recorder.current = null;
+    setRec(null);
+  }
 
   function add(files) {
     const next = [];
@@ -102,7 +171,7 @@ export function WritePage() {
     staged.forEach((s) => s.preview && URL.revokeObjectURL(s.preview));
     setStaged([]);
     setText('');
-    requestAnimationFrame(() => { grow(area.current); area.current?.focus(); });
+    requestAnimationFrame(() => { area.current?.focus(); });
   }
 
   const answer = mind.answer;
@@ -118,9 +187,12 @@ export function WritePage() {
           ref={area}
           value={text}
           placeholder={drop ? t('dropHere') : t('invite')}
-          onChange={(e) => { setText(e.target.value); grow(e.target); }}
+          onChange={(e) => setText(e.target.value)}
           onPaste={(e) => { const f = [...(e.clipboardData?.files ?? [])]; if (f.length) { e.preventDefault(); add(f); } }}
-          onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); }
+            if (e.key === 'Escape' && rec) { e.preventDefault(); cancelSpeak(); }
+          }}
           aria-label={t('invite')}
         />
         {staged.length ? (
@@ -134,8 +206,20 @@ export function WritePage() {
           </div>
         ) : null}
         <div className="write-foot">
-          <IconBtn icon="photo" label={t('attachPhoto')} onClick={() => photoInput.current?.click()} />
-          <IconBtn icon="file" label={t('attachFile')} onClick={() => fileInput.current?.click()} />
+          <button type="button" className={`icon-btn mic${rec ? ' on' : ''}`} aria-label={rec ? t('micStop') : t('mic')} title={rec ? t('micStop') : `${t('mic')} · Ctrl+Shift+Space`} aria-pressed={!!rec} onClick={speak} disabled={!!hearing}>
+            <Icon name={rec ? 'stop' : 'mic'} />
+          </button>
+          {rec ? (
+            <div className="rec" role="status">
+              <i className="rec-dot" />
+              <span className="num">{`${Math.floor(rec.secs / 60)}:${String(Math.floor(rec.secs % 60)).padStart(2, '0')}`}</span>
+              <span className="rec-level" style={{ '--level': rec.level }}><b /><b /><b /><b /><b /></span>
+              <button type="button" className="quiet rec-x" onClick={cancelSpeak} aria-label={t('micCancel')} title={`${t('micCancel')} · Esc`}><Icon name="close" size={14} /></button>
+            </div>
+          ) : null}
+          {hearing ? <div className="rec hearing" role="status"><span className="spin small" aria-hidden="true" />{t('micHearing')}{hearing.n > 1 ? ` ${hearing.i + 1}/${hearing.n}` : ''}</div> : null}
+          {rec || hearing ? null : <IconBtn icon="photo" label={t('attachPhoto')} onClick={() => photoInput.current?.click()} />}
+          {rec || hearing ? null : <IconBtn icon="file" label={t('attachFile')} onClick={() => fileInput.current?.click()} />}
           <input ref={photoInput} type="file" accept="image/*" multiple hidden onChange={(e) => { add([...e.target.files]); e.target.value = ''; }} />
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { add([...e.target.files]); e.target.value = ''; }} />
           <span className="hint">{t('sendHint')}</span>

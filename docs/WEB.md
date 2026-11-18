@@ -140,6 +140,11 @@ buscam, Alt 1–7 abrem as abas, Esc fecha. Dá pra **instalar como aplicativo**
 `manifest.webmanifest`; Ajustes mostra "Instalar como aplicativo" quando o navegador oferece): abre numa
 janela própria.
 
+**Falar** (o microfone em Escrever, ou Ctrl+Shift+Espaço): grava no navegador, faz 16 kHz mono, corta em
+pedaços de até ~55 s nas pausas e manda cada um como WAV pro `hear` do servidor, em nome do celular, com o
+mesmo pedido do app (`web/src/core/voice.js`). As palavras caem na caixa: ela lê e guarda. Nada do áudio
+fica. `Permissions-Policy: microphone=(self)`; Esc descarta a gravação.
+
 CSP: só scripts e estilos da própria origem, imagens e sons só dela ou `blob:`, nada de iframes, workers,
 formulários ou `base`, `frame-ancestors 'none'` e **Trusted Types** (nenhum texto vira HTML ou script).
 Fora isso: HSTS, `nosniff`, `no-referrer`, COOP/CORP, Permissions-Policy. Um arquivo aberto na página
