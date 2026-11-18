@@ -231,6 +231,8 @@ test('as páginas: mesma origem, sem script de fora; o Android sabe abrir o cód
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
   assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  assert.match(page.headers.get('content-security-policy'), /require-trusted-types-for 'script'/);
+  assert.match(page.headers.get('cache-control'), /no-transform/);
   const etag = page.headers.get('etag');
   assert.equal((await fetch(`${server.url}/web/`, { headers: { 'If-None-Match': etag } })).status, 304);
   // A page of the app (the link from the QR code) is the app itself.
