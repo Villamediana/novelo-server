@@ -36,7 +36,9 @@ before(async () => {
   keys = await lock.spaceKeys(master);
   const space = (await signed(phone, 'POST', '/v1/sync/space', { key_check: keys.check })).json.space;
   const mine = await lock.linkKeys();
-  const start = await (await fetch(`${server.url}/v1/link`, { method: 'POST', body: JSON.stringify({ key: mine.pub, name: 'teste' }) })).json();
+  const signer = await lock.proofKeys();
+  globalThis.proof = signer.privateKey;
+  const start = await (await fetch(`${server.url}/v1/link`, { method: 'POST', body: JSON.stringify({ key: mine.pub, name: 'teste', proof: signer.pub }) })).json();
   const wrapped = await lock.wrapLink(mine.pub, start.id, mine.secret, { space, key: master });
   assert.equal((await signed(phone, 'POST', `/v1/link/${start.id}/approve`, { wrapped })).status, 200);
   const got = await (await fetch(`${server.url}/v1/link/${start.id}`, { headers: { 'X-Novelo-Poll': start.poll } })).json();
@@ -50,7 +52,7 @@ after(async () => {
 
 const page = (store = new MemoryStore()) => {
   const data = new Data();
-  return { data, store, sync: new WebSync({ api: new Api({ base: server.url, token: globalThis.token }), keys, data, store }) };
+  return { data, store, sync: new WebSync({ api: new Api({ base: server.url, token: globalThis.token, proof: globalThis.proof }), keys, data, store }) };
 };
 
 async function phoneRecord(table, rid) {

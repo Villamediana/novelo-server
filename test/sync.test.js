@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { startServer, fakeUpstream, Phone, signed, sleep } from './helpers.js';
 import * as lock from '../web/src/core/crypto.js';
+import { Api } from '../web/src/core/api.js';
 
 let upstream, server, phone, keys, master, spaceId;
 
@@ -24,11 +25,16 @@ after(async () => {
   await upstream.close();
 });
 
+// Each linked computer's signing key (by its token): its requests go signed, as the page's do.
+const proofs = new Map();
 const web = (token) => async (method, path, body, headers = {}) => {
+  const bytes = body == null ? undefined : body instanceof Uint8Array ? body : new TextEncoder().encode(JSON.stringify(body));
+  const proof = proofs.get(token);
+  const sig = proof ? await new Api({ token, proof }).sign(method, path, bytes) : null;
   const res = await fetch(server.url + path, {
     method,
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body && !(body instanceof Uint8Array) ? { 'Content-Type': 'application/json' } : {}), ...headers },
-    body: body == null ? undefined : body instanceof Uint8Array ? body : JSON.stringify(body),
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(sig ? { 'X-Novelo-Sig': sig } : {}), ...(body && !(body instanceof Uint8Array) ? { 'Content-Type': 'application/json' } : {}), ...headers },
+    body: bytes,
   });
   const data = Buffer.from(await res.arrayBuffer());
   let json = null;
@@ -40,8 +46,12 @@ const web = (token) => async (method, path, body, headers = {}) => {
 
 /** A computer that showed its code and was linked by the phone. */
 async function linkComputer(name = 'Chrome no Windows') {
+  // Many codes from one address in a few seconds (the tests): the per-minute count starts over.
+  server.app.api.knocks.clear();
+  server.app.sync.calls.clear();
   const mine = await lock.linkKeys();
-  const start = await web()('POST', '/v1/link', { key: mine.pub, name });
+  const signer = await lock.proofKeys();
+  const start = await web()('POST', '/v1/link', { key: mine.pub, name, proof: signer.pub });
   assert.equal(start.status, 200);
   const waiting = web()('GET', `/v1/link/${start.json.id}?wait=10`, null, { 'X-Novelo-Poll': start.json.poll });
   await sleep(50);
@@ -53,7 +63,8 @@ async function linkComputer(name = 'Chrome no Windows') {
   assert.equal(got.status, 200);
   assert.equal(got.json.status, 'linked');
   const opened = await lock.unwrapLink(mine.privateKey, start.json.id, mine.secret, got.json.wrapped);
-  return { token: got.json.token, id: start.json.id, opened, poll: start.json.poll, pub: mine.pub };
+  proofs.set(got.json.token, signer.privateKey);
+  return { token: got.json.token, id: start.json.id, opened, poll: start.json.poll, pub: mine.pub, proof: signer.privateKey };
 }
 
 test('o celular abre o espaço; outra chave não entra sem recomeçar', async () => {
@@ -126,7 +137,9 @@ test('o computador lê o código, recebe a chave cifrada pra ele e só uma vez',
 
 test('um código esquecido expira e um código lido por outro não serve', async () => {
   const mine = await lock.linkKeys();
-  const start = await web()('POST', '/v1/link', { key: mine.pub, name: 'x' });
+  const start = await web()('POST', '/v1/link', { key: mine.pub, name: 'x', proof: (await lock.proofKeys()).pub });
+  // Without the key that will sign its requests, no code.
+  assert.equal((await web()('POST', '/v1/link', { key: mine.pub, name: 'x' })).status, 422);
   assert.equal((await web()('GET', `/v1/link/${start.json.id}`, null, { 'X-Novelo-Poll': 'errado' })).status, 404);
   // The secret only counts in its header (never in the address).
   assert.equal((await web()('GET', `/v1/link/${start.json.id}?poll=${start.json.poll}`)).status, 404);
@@ -140,7 +153,7 @@ test('um código esquecido expira e um código lido por outro não serve', async
   // Only a phone approves (a token can't).
   const c = await linkComputer('outro');
   const m2 = await lock.linkKeys();
-  const s2 = await web()('POST', '/v1/link', { key: m2.pub });
+  const s2 = await web()('POST', '/v1/link', { key: m2.pub, proof: (await lock.proofKeys()).pub });
   assert.equal((await web(c.token)('POST', `/v1/link/${s2.json.id}/approve`, { wrapped })).status, 403);
 });
 
@@ -249,7 +262,7 @@ test('as páginas: mesma origem, sem script de fora; o Android sabe abrir o cód
 
 test('o nome que o celular vê não engana; o servidor não guarda o endereço do computador', async () => {
   const mine = await lock.linkKeys();
-  const start = await web()('POST', '/v1/link', { key: mine.pub, name: 'Chrome\u202Eswodni\u0007W ' });
+  const start = await web()('POST', '/v1/link', { key: mine.pub, name: 'Chrome\u202Eswodni\u0007W ', proof: (await lock.proofKeys()).pub });
   const row = server.app.db.prepare('SELECT name, ip FROM links WHERE id = ?').get(start.json.id);
   assert.equal(row.name, 'ChromeswodniW');
   assert.equal(row.ip, '');
@@ -259,12 +272,17 @@ test('um token que o computador não buscou some; um computador parado há meses
   const sync = server.app.sync;
   // Read by the phone, never fetched: past the code's time, nothing of it stays (its token included).
   const mine = await lock.linkKeys();
-  const start = await web()('POST', '/v1/link', { key: mine.pub, name: 'Esquecido' });
+  const start = await web()('POST', '/v1/link', { key: mine.pub, name: 'Esquecido', proof: (await lock.proofKeys()).pub });
   const wrapped = await lock.wrapLink(mine.pub, start.json.id, mine.secret, { space: spaceId, key: master });
   assert.equal((await signed(phone, 'POST', `/v1/link/${start.json.id}/approve`, { wrapped })).status, 200);
   server.app.db.prepare('UPDATE links SET created = created - 3600000 WHERE id = ?').run(start.json.id);
   sync.prune();
   assert.equal(server.app.db.prepare('SELECT COUNT(*) n FROM links WHERE id = ?').get(start.json.id).n, 0);
+  // Fetched by the computer but never used (its answer lost on the way): gone after the code's time.
+  const lost = await linkComputer('Perdido');
+  server.app.db.prepare('UPDATE links SET created = created - 3600000, approved = approved - 3600000, last_seen = last_seen - 3600000 WHERE id = ?').run(lost.id);
+  sync.prune();
+  assert.equal(server.app.db.prepare('SELECT COUNT(*) n FROM links WHERE id = ?').get(lost.id).n, 0);
   // Linked, then not seen for longer than SYNC_IDLE_DAYS: unlinked.
   const c = await linkComputer('Parado');
   assert.equal((await web(c.token)('GET', '/v1/web/me')).status, 200);
@@ -299,6 +317,74 @@ test('esperas abertas têm limite; o disco nunca enche', async () => {
   } finally {
     sync.minFree = keep;
   }
+});
+
+test('o token sozinho não serve: cada pedido do computador vai assinado, uma vez só, na hora', async () => {
+  const c = await linkComputer('Assinado');
+  assert.equal((await web(c.token)('GET', '/v1/web/me')).status, 200);
+  const bare = async (path, headers = {}) => fetch(server.url + path, { headers: { Authorization: `Bearer ${c.token}`, ...headers } });
+  // Without a signature, with another key's, for another address, or the same one twice: refused —
+  // as "bad_proof", which doesn't make the page throw everything away.
+  const none = await bare('/v1/web/me');
+  assert.equal(none.status, 401);
+  assert.equal((await none.json()).error.code, 'bad_proof');
+  const other = await lock.proofKeys();
+  assert.equal((await bare('/v1/web/me', { 'X-Novelo-Sig': await new Api({ token: c.token, proof: other.privateKey }).sign('GET', '/v1/web/me') })).status, 401);
+  const signer = new Api({ token: c.token, proof: c.proof });
+  assert.equal((await bare('/v1/web/me', { 'X-Novelo-Sig': await signer.sign('GET', '/v1/sync/changes?since=0') })).status, 401);
+  const once = await signer.sign('GET', '/v1/web/me');
+  assert.equal((await bare('/v1/web/me', { 'X-Novelo-Sig': once })).status, 200);
+  assert.equal((await bare('/v1/web/me', { 'X-Novelo-Sig': once })).status, 401);
+  // A body changed on the way doesn't match its signature.
+  const items = { items: [] };
+  const sig = await signer.sign('POST', '/v1/sync/push', new TextEncoder().encode(JSON.stringify(items)));
+  const changed = await fetch(server.url + '/v1/sync/push', { method: 'POST', headers: { Authorization: `Bearer ${c.token}`, 'X-Novelo-Sig': sig }, body: JSON.stringify({ items: [{}] }) });
+  assert.equal(changed.status, 401);
+  // A clock far off: the server says its time, the page signs again with it (and gets in).
+  const late = new Api({ base: server.url, token: c.token, proof: c.proof });
+  late.skew = -10 * 60_000;
+  assert.equal((await late.me()).link, c.id);
+  assert.ok(Math.abs(late.skew) < 5_000);
+  // Only this origin reads what comes from the sync.
+  assert.equal(none.headers.get('cross-origin-resource-policy'), 'same-origin');
+});
+
+test('computador de outra pessoa: desliga ao fechar a aba, ou sozinho depois de meia hora sem sinal', async () => {
+  const sync = server.app.sync;
+  const c = await linkComputer('Biblioteca');
+  assert.equal((await web(c.token)('POST', '/v1/link/shared')).status, 200);
+  assert.equal(server.app.db.prepare('SELECT shared FROM links WHERE id = ?').get(c.id).shared, 1);
+  assert.equal((await signed(phone, 'GET', '/v1/links')).json.links.find((l) => l.id === c.id).shared, true);
+  server.app.db.prepare('UPDATE links SET last_seen = last_seen - ? WHERE id = ?').run(31 * 60_000, c.id);
+  sync.prune();
+  assert.equal((await web(c.token)('GET', '/v1/web/me')).status, 401);
+  // The tab closing: its farewell, signed ahead of time, goes as a plain DELETE.
+  const d = await linkComputer('Lan house');
+  const farewell = await new Api({ token: d.token, proof: d.proof }).sign('DELETE', '/v1/link');
+  assert.equal((await fetch(server.url + '/v1/link', { method: 'DELETE', headers: { Authorization: `Bearer ${d.token}`, 'X-Novelo-Sig': farewell } })).status, 200);
+  assert.equal((await web(d.token)('GET', '/v1/web/me')).status, 401);
+  // A computer that is hers isn't touched by it.
+  const e = await linkComputer('Meu');
+  assert.equal((await web(e.token)('GET', '/v1/web/me')).status, 200);
+  server.app.db.prepare('UPDATE links SET last_seen = last_seen - ? WHERE id = ?').run(31 * 60_000, e.id);
+  sync.prune();
+  assert.equal((await web(e.token)('GET', '/v1/web/me')).status, 200);
+});
+
+test('as novidades vêm em páginas de no máximo uns 4 MB', async () => {
+  const c = await linkComputer('Páginas');
+  const head = (await web(c.token)('GET', '/v1/sync/changes?since=0')).json.head;
+  const items = [];
+  for (let i = 0; i < 12; i++) {
+    const k = await lock.recordKey(keys, 'entries', 5000 + i);
+    items.push({ k, base: 0, d: await lock.seal(keys, k, { t: 'entries', id: String(5000 + i), r: { id: 5000 + i, body: 'x'.repeat(380_000) } }) });
+  }
+  for (let i = 0; i < items.length; i += 4) assert.equal((await web(c.token)('POST', '/v1/sync/push', { items: items.slice(i, i + 4) })).status, 200);
+  const page = (await web(c.token)('GET', `/v1/sync/changes?since=${head}&limit=1000`)).json;
+  assert.ok(page.more);
+  assert.ok(page.changes.length >= 1 && page.changes.length < 12, `${page.changes.length} in one page`);
+  const rest = (await web(c.token)('GET', `/v1/sync/changes?since=${page.seq}&limit=1000`)).json;
+  assert.ok(rest.changes.length >= 1);
 });
 
 test('o celular recomeça com outra chave: tudo do espaço some, computadores inclusive', async () => {

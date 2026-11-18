@@ -24,7 +24,14 @@ export class Store {
       if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'id' });
     };
     this.db = await req(r);
+    // Another tab throws the database away (unlinked there): let go of it here at once.
+    this.db.onversionchange = () => this.close();
     return this;
+  }
+
+  close() {
+    this.db?.close();
+    this.db = null;
   }
 
   tx(store, mode = 'readonly') {
@@ -76,5 +83,31 @@ export class Store {
     this.db?.close();
     this.db = null;
     await req(indexedDB.deleteDatabase(DB)).catch(() => {});
+  }
+}
+
+/**
+ * The same, only in this tab's memory: for a computer that isn't hers ("Manter ligado" unchecked).
+ * Nothing touches the disk; closing the tab forgets it all (and unlinks the computer).
+ */
+export class MemoryStore {
+  constructor() {
+    this.meta = new Map();
+    this.recs = new Map();
+    this.files = new Map();
+  }
+
+  async open() { return this; }
+  async get(key) { return this.meta.get(key); }
+  async set(key, value) { this.meta.set(key, value); }
+  async records() { return [...this.recs.values()]; }
+  async putRecords(list) { for (const r of list) (r.remove ? this.recs.delete(r.k) : this.recs.set(r.k, r)); }
+  async pendingFiles() { return [...this.files.values()]; }
+  async putFile(f) { this.files.set(f.id, f); }
+  async dropFile(id) { this.files.delete(id); }
+  async wipe() {
+    this.meta.clear();
+    this.recs.clear();
+    this.files.clear();
   }
 }

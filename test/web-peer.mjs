@@ -12,6 +12,7 @@
 //   node test/web-peer.mjs <state> me                       → {status}
 import fs from 'node:fs';
 import * as lock from '../web/src/core/crypto.js';
+import { Api } from '../web/src/core/api.js';
 
 const [stateFile, cmd, ...args] = process.argv.slice(2);
 const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : {};
@@ -20,10 +21,17 @@ const out = (v) => process.stdout.write(JSON.stringify(v) + '\n');
 const subtle = globalThis.crypto.subtle;
 
 async function api(method, path, body, raw, headers = {}) {
+  const bytes = raw ?? (body ? new TextEncoder().encode(JSON.stringify(body)) : undefined);
+  // Signed as the page signs (the key that signs is kept here as JWK: a test's, not a browser's).
+  let sig = null;
+  if (state.token && state.proofJwk) {
+    const proof = await subtle.importKey('jwk', state.proofJwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+    sig = await new Api({ token: state.token, proof }).sign(method, path, bytes);
+  }
   const res = await fetch(state.server + path, {
     method,
-    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
-    body: raw ?? (body ? JSON.stringify(body) : undefined),
+    headers: { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(sig ? { 'X-Novelo-Sig': sig } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
+    body: bytes,
   });
   const data = Buffer.from(await res.arrayBuffer());
   let json = null;
@@ -58,8 +66,11 @@ switch (cmd) {
     const pair = await subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
     const pub = lock.b64u.enc(new Uint8Array(await subtle.exportKey('raw', pair.publicKey)));
     state.jwk = await subtle.exportKey('jwk', pair.privateKey);
+    const signer = await subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    state.proofJwk = await subtle.exportKey('jwk', signer.privateKey);
+    const proofPub = lock.b64u.enc(new Uint8Array(await subtle.exportKey('raw', signer.publicKey)));
     state.secret = lock.b64u.enc(globalThis.crypto.getRandomValues(new Uint8Array(16)));
-    const r = await api('POST', '/v1/link', { key: pub, name: args[1] ?? 'Teste' });
+    const r = await api('POST', '/v1/link', { key: pub, name: args[1] ?? 'Teste', proof: proofPub });
     if (r.status !== 200) throw new Error(`link ${r.status} ${r.data}`);
     state.link = r.json.id;
     state.poll = r.json.poll;

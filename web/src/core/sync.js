@@ -304,12 +304,25 @@ export class WebSync {
   async url(id, mime = 'application/octet-stream') {
     if (!id) return null;
     const have = this.urls.get(id);
-    if (have) return have;
+    if (have) {
+      // The most recently used last (the oldest go first, below).
+      this.urls.delete(id);
+      this.urls.set(id, have);
+      return have;
+    }
     const sealed = await this.api.getBlob(id).catch(() => null);
     if (!sealed) return null;
     const bytes = await lock.openBlob(this.keys, id, sealed);
     const u = URL.createObjectURL(new Blob([bytes], { type: safeType(mime) }));
     this.urls.set(id, u);
+    // At most so many opened at once (a long visit to the Galeria): the oldest are let go — what is
+    // still on the screen stays drawn, and is opened again if it is needed again.
+    for (const [old, ou] of this.urls) {
+      if (this.urls.size <= MAX_URLS) break;
+      if (this.waitingFiles.has(old)) continue;
+      this.urls.delete(old);
+      URL.revokeObjectURL(ou);
+    }
     return u;
   }
 
@@ -349,6 +362,7 @@ export class WebSync {
 }
 
 const BLOB_ID = /^[A-Za-z0-9_-]{22,64}$/;
+const MAX_URLS = 300;
 const KINDS = ['image', 'thumb', 'audio', 'file'];
 
 /** A capture's files as they may be: {image|thumb|audio|file: {id, size, mime}}, each checked; null when none. */

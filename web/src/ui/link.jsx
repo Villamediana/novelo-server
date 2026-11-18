@@ -30,6 +30,10 @@ function Qr({ text }) {
 export function LinkPage({ api, t, onLinked }) {
   const [code, setCode] = useState(null); // {url, id, poll, privateKey}
   const [state, setState] = useState('waiting'); // waiting | expired | linking | failed
+  // Kept linked (the computer is hers) or only while this tab is open (someone else's).
+  const [keep, setKeep] = useState(true);
+  const keepRef = useRef(true);
+  keepRef.current = keep;
   const round = useRef(0);
 
   async function start() {
@@ -38,7 +42,8 @@ export function LinkPage({ api, t, onLinked }) {
     setCode(null);
     try {
       const keys = await lock.linkKeys();
-      const s = await api.startLink(keys.pub, browserName(t));
+      const proof = await lock.proofKeys();
+      const s = await api.startLink(keys.pub, browserName(t), proof.pub);
       if (mine !== round.current) return;
       const c = { url: lock.linkUrl(location.origin, s.id, keys.pub, keys.secret), id: s.id, poll: s.poll, privateKey: keys.privateKey, secret: keys.secret };
       setCode(c);
@@ -61,7 +66,7 @@ export function LinkPage({ api, t, onLinked }) {
         const opened = await lock.unwrapLink(c.privateKey, c.id, c.secret, res.wrapped);
         // What the phone said (only it could say it) and what the server says have to be the same space.
         if (opened.space !== res.space) throw new Error('espaço diferente');
-        await onLinked({ token: res.token, space: opened.space, key: opened.key, owner: opened.owner });
+        await onLinked({ token: res.token, proof: proof.privateKey, space: opened.space, key: opened.key, owner: opened.owner, shared: !keepRef.current });
         return;
       }
     } catch {
@@ -87,6 +92,10 @@ export function LinkPage({ api, t, onLinked }) {
             <li>{t('link3')}</li>
           </ol>
           <p className="safe">{t('linkSafe')}</p>
+          <label className="keep">
+            <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />
+            <span><b>{t('keepLinked')}</b><br />{t('keepLinkedHint')}</span>
+          </label>
         </div>
         <div>
           <div className="qr" data-code={code?.url}>

@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS links(
   ip TEXT NOT NULL DEFAULT '',
   created INTEGER NOT NULL,
   approved INTEGER NOT NULL DEFAULT 0,
-  last_seen INTEGER NOT NULL DEFAULT 0
+  last_seen INTEGER NOT NULL DEFAULT 0,
+  proof_key TEXT,
+  shared INTEGER NOT NULL DEFAULT 0
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS links_space ON links(space);
 `;
@@ -68,6 +70,20 @@ const ID = /^[A-Za-z0-9_-]{22,64}$/;
 const KEY = /^[A-Za-z0-9_-]{43}$/;
 const B64URL = /^[A-Za-z0-9_-]*$/;
 const MINUTE = 60_000;
+const PAGE_BYTES = 4 * 1024 * 1024;
+// How far a computer's clock may be from the server's (and how long a nonce is remembered: twice this).
+const PROOF_WINDOW = 2 * MINUTE;
+
+/** A P-256 public key (raw, 65 bytes, base64url) as a key to verify with; null when it isn't one. */
+function proofKey(raw) {
+  try {
+    const b = Buffer.from(raw, 'base64url');
+    if (b.length !== 65 || b[0] !== 4) return null;
+    return crypto.createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: b.subarray(1, 33).toString('base64url'), y: b.subarray(33).toString('base64url') }, format: 'jwk' });
+  } catch {
+    return null;
+  }
+}
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 // A name shown to someone (the computer's on the phone, the phone's on the computer): no control
@@ -81,6 +97,10 @@ export class Sync {
     this.db = db;
     this.now = now;
     db.exec(SYNC_SCHEMA);
+    // Columns added after the table was first made.
+    const cols = new Set(db.prepare('PRAGMA table_info(links)').all().map((c) => c.name));
+    if (!cols.has('proof_key')) db.exec('ALTER TABLE links ADD COLUMN proof_key TEXT');
+    if (!cols.has('shared')) db.exec('ALTER TABLE links ADD COLUMN shared INTEGER NOT NULL DEFAULT 0');
     this.dir = path.join(dataDir, 'sync');
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     // What one space may hold: the records (text) and the files (photos, sounds, documents).
@@ -95,12 +115,17 @@ export class Sync {
     this.maxPending = config.int('SYNC_PENDING_LINKS', 5000);
     // A computer not seen in this many days is unlinked (it has to read a new code).
     this.idleMs = config.int('SYNC_IDLE_DAYS', 90) * 24 * 3600_000;
+    // A computer that isn't hers (not kept linked): unlinked when its tab closes — or, if that word
+    // never comes, after this long without a sign of it.
+    this.sharedIdleMs = config.int('SYNC_SHARED_IDLE_MIN', 30) * MINUTE;
     // The disk is never filled up: below this much free, nothing more is kept.
     this.minFree = config.int('SYNC_MIN_FREE_MB', 2048) * 1024 * 1024;
     // Long waits (news, a code being read) open at once: per space, per code and in all.
     this.maxWaitsPerSpace = 12;
     this.maxWaits = config.int('SYNC_MAX_WAITS', 4000);
     this.waits = 0;
+    this.proofKeys = new Map(); // link → its public key (KeyObject)
+    this.nonces = new Map(); // link → Map(nonce → when): each signed request is taken once
     this.waiters = new Map(); // space → Set<() => void>
     this.polls = new Map(); // link id → Set<() => void>
     this.calls = new Map(); // space or ip → { start, n }
@@ -120,16 +145,20 @@ export class Sync {
       blobBytes: db.prepare('UPDATE spaces SET blob_bytes = (SELECT COALESCE(SUM(size), 0) FROM blobs WHERE space = ?) WHERE id = ?'),
       link: db.prepare('SELECT * FROM links WHERE id = ?'),
       linkByToken: db.prepare('SELECT * FROM links WHERE token_hash = ?'),
-      newLink: db.prepare('INSERT INTO links(id, web_key, poll_hash, name, ip, created) VALUES(?,?,?,?,?,?)'),
+      newLink: db.prepare('INSERT INTO links(id, web_key, poll_hash, name, ip, created, proof_key) VALUES(?,?,?,?,?,?,?)'),
       approve: db.prepare('UPDATE links SET space = ?, token_hash = ?, wrapped = ?, approved = ?, last_seen = ? WHERE id = ? AND approved = 0'),
       delivered: db.prepare('UPDATE links SET wrapped = NULL WHERE id = ?'),
       linkSeen: db.prepare('UPDATE links SET last_seen = ? WHERE id = ?'),
-      linksOf: db.prepare('SELECT id, name, created, last_seen FROM links WHERE space = ? AND approved > 0 ORDER BY created'),
+      linksOf: db.prepare('SELECT id, name, created, last_seen, shared FROM links WHERE space = ? AND approved > 0 ORDER BY created'),
       dropLink: db.prepare('DELETE FROM links WHERE id = ? AND space = ?'),
       stale: db.prepare('DELETE FROM links WHERE approved = 0 AND created < ?'),
       // Read by the phone but never fetched by the computer: its token (kept only until then) goes.
       undelivered: db.prepare('DELETE FROM links WHERE approved > 0 AND wrapped IS NOT NULL AND created < ?'),
       idle: db.prepare('DELETE FROM links WHERE approved > 0 AND wrapped IS NULL AND last_seen < ?'),
+      // Fetched by the computer but never used (the answer lost on the way): not a computer of hers.
+      unused: db.prepare('DELETE FROM links WHERE approved > 0 AND wrapped IS NULL AND last_seen = approved AND approved < ?'),
+      sharedIdle: db.prepare('DELETE FROM links WHERE shared = 1 AND approved > 0 AND last_seen < ?'),
+      markShared: db.prepare('UPDATE links SET shared = 1 WHERE id = ?'),
       pending: db.prepare('SELECT COUNT(*) AS n FROM links WHERE approved = 0'),
     };
   }
@@ -168,6 +197,12 @@ export class Sync {
     this.q.stale.run(now - this.linkTtl);
     this.q.undelivered.run(now - this.linkTtl);
     this.q.idle.run(now - this.idleMs);
+    this.q.unused.run(now - this.linkTtl);
+    this.q.sharedIdle.run(now - this.sharedIdleMs);
+    for (const [k, seen] of this.nonces) {
+      for (const [n, at] of seen) if (now - at > PROOF_WINDOW * 2) seen.delete(n);
+      if (!seen.size) this.nonces.delete(k);
+    }
     for (const [k, c] of this.calls) if (now - c.start > MINUTE) this.calls.delete(k);
   }
 
@@ -226,8 +261,18 @@ export class Sync {
     const from = Number.isSafeInteger(since) && since >= 0 ? since : 0;
     const n = Math.max(1, Math.min(Number.isSafeInteger(limit) ? limit : 500, 1000));
     const rows = this.q.changes.all(spaceId, from, n + 1);
-    const more = rows.length > n;
-    const page = rows.slice(0, n);
+    let more = rows.length > n;
+    // At most ~4 MB a page (records go up to 512 KB each): the rest in the next one.
+    let page = rows.slice(0, n);
+    let bytes = 0;
+    for (let i = 0; i < page.length; i++) {
+      bytes += (page[i].data?.length ?? 0) + 64;
+      if (bytes > PAGE_BYTES && i > 0) {
+        page = page.slice(0, i);
+        more = true;
+        break;
+      }
+    }
     return {
       changes: page.map((r) => ({ k: r.key, s: r.seq, d: r.data ? Buffer.from(r.data).toString('base64') : null })),
       seq: page.length ? page[page.length - 1].seq : from,
@@ -380,14 +425,19 @@ export class Sync {
 
   // ------------------------------------------------------------------ linking a computer
 
-  /** A computer wants to be linked: its public key (P-256, raw, base64url) and what it is. */
-  startLink(webKey, name) {
+  /**
+   * A computer wants to be linked: its public key for the link (P-256, raw, base64url), the public half
+   * of the key that will sign each of its requests ([proof], ECDSA P-256, raw, base64url: the private
+   * half can't leave its browser) and what it is.
+   */
+  startLink(webKey, name, proof) {
     if (typeof webKey !== 'string' || !B64URL.test(webKey) || Buffer.from(webKey, 'base64url').length !== 65) throw bad('key: P-256 (65 bytes).');
+    if (typeof proof !== 'string' || !B64URL.test(proof) || !proofKey(proof)) throw bad('proof: P-256 (65 bytes).');
     if (this.q.pending.get().n >= this.maxPending) throw new HttpError(503, 'busy', 'Muitos códigos abertos agora. Tente de novo em instantes.', { retry_after: 60 });
     const id = token(16);
     const poll = token(32);
     // The address isn't kept (it was only for counting, in memory): nothing about the computer but its name.
-    this.q.newLink.run(id, webKey, sha(poll), shown(name, 80), '', this.now());
+    this.q.newLink.run(id, webKey, sha(poll), shown(name, 80), '', this.now(), proof);
     return { id, poll, expires_in: Math.round(this.linkTtl / 1000) };
   }
 
@@ -463,16 +513,56 @@ export class Sync {
     if (!l || !l.space) throw new HttpError(401, 'unlinked', 'Este computador não está mais ligado ao celular.');
     const s = this.q.space.get(l.space);
     if (!s) throw new HttpError(401, 'unlinked', 'Este computador não está mais ligado ao celular.');
+    return { link: l.id, name: l.name, space: s.id, install: s.install, device: s.device, proof: l.proof_key, approved: l.approved, lastSeen: l.last_seen };
+  }
+
+  /**
+   * The computer's request is its own: signed (X-Novelo-Sig: "<ms>.<nonce>.<signature>") by the key
+   * only its browser holds, over what it asks — method, address, when, a one-time nonce and the
+   * body's SHA-256. A token taken elsewhere (a log, a copy of the disk) is worth nothing without it.
+   * A clock too far off says the server's time (the page corrects and asks again).
+   */
+  proof(who, req, raw) {
+    const key = who.proof ? this.proofKeyOf(who.link, who.proof) : null;
+    const m = /^(\d{12,14})\.([A-Za-z0-9_-]{16,32})\.([A-Za-z0-9_-]{86})$/.exec(String(req.headers['x-novelo-sig'] ?? ''));
     const now = this.now();
-    if (now - l.last_seen > MINUTE) this.q.linkSeen.run(now, l.id);
-    return { link: l.id, name: l.name, space: s.id, install: s.install, device: s.device };
+    if (!key || !m) throw new HttpError(401, 'bad_proof', 'Pedido sem a assinatura deste computador.', { now });
+    const at = Number(m[1]);
+    if (Math.abs(now - at) > PROOF_WINDOW) throw new HttpError(401, 'bad_proof', 'O relógio deste computador está fora da hora.', { now });
+    const text = `novelo-web-v1\n${req.method}\n${req.url}\n${m[1]}\n${m[2]}\n${crypto.createHash('sha256').update(raw).digest('hex')}`;
+    const ok = crypto.verify('sha256', Buffer.from(text), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(m[3], 'base64url'));
+    if (!ok) throw new HttpError(401, 'bad_proof', 'Assinatura que não confere.', { now });
+    let seen = this.nonces.get(who.link);
+    if (!seen) this.nonces.set(who.link, (seen = new Map()));
+    if (seen.has(m[2])) throw new HttpError(401, 'bad_proof', 'Pedido repetido.', { now });
+    if (seen.size >= 20_000) throw new HttpError(429, 'rate_limited', 'Muitos pedidos em pouco tempo.', { retry_after: 30 });
+    seen.set(m[2], now);
+    // Seen now (the first use after being linked, then once a minute).
+    if (who.lastSeen === who.approved || now - who.lastSeen > MINUTE) this.q.linkSeen.run(now, who.link);
+  }
+
+  proofKeyOf(link, raw) {
+    let k = this.proofKeys.get(link);
+    if (!k) {
+      k = proofKey(raw);
+      if (this.proofKeys.size > 2000) this.proofKeys.clear();
+      if (k) this.proofKeys.set(link, k);
+    }
+    return k;
+  }
+
+  /** This computer isn't hers: it goes when its tab closes, or by itself after a while without a sign. */
+  markShared(link) {
+    this.q.markShared.run(link);
   }
 
   links(spaceId) {
-    return this.q.linksOf.all(spaceId).map((l) => ({ id: l.id, name: l.name, created: l.created, last_seen: l.last_seen }));
+    return this.q.linksOf.all(spaceId).map((l) => ({ id: l.id, name: l.name, created: l.created, last_seen: l.last_seen, shared: l.shared === 1 }));
   }
 
   unlink(spaceId, id) {
+    this.proofKeys.delete(id);
+    this.nonces.delete(id);
     return this.q.dropLink.run(id, spaceId).changes > 0;
   }
 }

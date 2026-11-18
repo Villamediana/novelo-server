@@ -237,3 +237,9 @@ a { color: var(--accent); }
   .main { padding: 20px 18px 60px; }
   .link { grid-template-columns: 1fr; gap: 30px; }
 }
+
+/* "Manter ligado neste computador" on the link page, and the note when it isn't. */
+.keep { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; font-size: 13.5px; line-height: 1.45; color: var(--muted); max-width: 440px; cursor: pointer; }
+.keep input { margin-top: 3px; accent-color: var(--accent); width: 16px; height: 16px; flex: none; }
+.keep b { color: var(--text); font-weight: 600; }
+.shared-note { margin-top: 10px; font-size: 11.5px; line-height: 1.35; color: var(--accent); }

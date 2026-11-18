@@ -1,6 +1,8 @@
 // The page talking to the Novelo's server (same address): the link (before there is a token), and
 // then everything with the token. What goes and comes is the encrypted bytes; see docs/WEB.md.
 
+import * as lock from './crypto.js';
+
 export class ApiError extends Error {
   constructor(status, code, message, extra = {}) {
     super(message || code || `HTTP ${status}`);
@@ -10,25 +12,47 @@ export class ApiError extends Error {
   }
 }
 
+const te = new TextEncoder();
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
 export class Api {
-  constructor({ base = '', token = null, onUnlinked = () => {} } = {}) {
+  /**
+   * [token]: this computer's entry to the server; [proof]: the private key (ECDSA P-256, not
+   * extractable) that signs each request — the token alone is worth nothing.
+   */
+  constructor({ base = '', token = null, proof = null, onUnlinked = () => {} } = {}) {
     this.base = base;
     this.token = token;
+    this.proof = proof;
     this.onUnlinked = onUnlinked;
+    this.skew = 0; // the server's clock minus this one (learned when the server says the clock is off)
   }
 
-  async call(method, path, { json, bytes, headers = {}, signal, raw = false } = {}) {
+  /** X-Novelo-Sig for a request: "<ms>.<nonce>.<ECDSA over method, address, ms, nonce, SHA-256 of the body>". */
+  async sign(method, path, body) {
+    const at = String(Date.now() + this.skew);
+    const nonce = lock.b64u.enc(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+    const digest = hex(await globalThis.crypto.subtle.digest('SHA-256', body ?? new Uint8Array(0)));
+    const text = `novelo-web-v1\n${method}\n${path}\n${at}\n${nonce}\n${digest}`;
+    const sig = await globalThis.crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, this.proof, te.encode(text));
+    return `${at}.${nonce}.${lock.b64u.enc(new Uint8Array(sig))}`;
+  }
+
+  async call(method, path, opts = {}, again = true) {
+    const { json, bytes, headers = {}, signal, raw = false } = opts;
+    const body = json !== undefined ? te.encode(JSON.stringify(json)) : bytes;
     let res;
     try {
       res = await fetch(this.base + path, {
         method,
         headers: {
           ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+          ...(this.token && this.proof ? { 'X-Novelo-Sig': await this.sign(method, path, body) } : {}),
           ...(json !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...(bytes ? { 'Content-Type': 'application/octet-stream' } : {}),
           ...headers,
         },
-        body: json !== undefined ? JSON.stringify(json) : bytes,
+        body,
         signal,
         cache: 'no-store',
         credentials: 'omit',
@@ -40,22 +64,27 @@ export class Api {
     }
     if (raw && res.ok) return new Uint8Array(await res.arrayBuffer());
     const text = await res.text();
-    let body = null;
+    let out = null;
     try {
-      body = text ? JSON.parse(text) : null;
+      out = text ? JSON.parse(text) : null;
     } catch { /* not JSON */ }
-    if (!res.ok || body?.error) {
-      const err = body?.error ?? {};
+    if (!res.ok || out?.error) {
+      const err = out?.error ?? {};
       if (res.status === 401 && err.code === 'unlinked') this.onUnlinked();
+      // This computer's clock is off: the server said its time; signed again with it, once.
+      if (res.status === 401 && err.code === 'bad_proof' && again && Number.isSafeInteger(err.now)) {
+        this.skew = err.now - Date.now();
+        return this.call(method, path, opts, false);
+      }
       throw new ApiError(res.status, err.code ?? 'http', err.message, err);
     }
-    return body;
+    return out;
   }
 
   // ------------------------------------------------------------------ linking
 
-  startLink(key, name) {
-    return this.call('POST', '/v1/link', { json: { key, name } });
+  startLink(key, name, proof) {
+    return this.call('POST', '/v1/link', { json: { key, name, proof } });
   }
 
   pollLink(id, poll, wait = 25, signal) {

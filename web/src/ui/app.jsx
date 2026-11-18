@@ -139,6 +139,7 @@ export function App() {
         <div className="rail-foot">
           <button type="button" className="nav" onClick={() => setSettings(true)}><Icon name="tune" /><span>{t('settings')}</span></button>
           <div className={`sync ${syncClass}`} title={sync.error ?? ''}><i /><span>{syncWord}</span></div>
+          {app.shared ? <div className="shared-note">{t('sharedBadge')}</div> : null}
         </div>
       </nav>
       <main className="main">

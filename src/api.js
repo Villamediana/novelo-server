@@ -338,13 +338,15 @@ Api.prototype.syncRoute = async function syncRoute(req, res, path) {
   };
   const aborted = new AbortController();
   res.on('close', () => aborted.abort());
+  // Only this origin's pages may read what comes from here (encrypted or not).
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
 
   // A computer, by its code's link (no token yet).
   if (req.method === 'POST' && path === '/v1/link') {
     const ip = this.knock(req);
     sync.rate(`ip:${ip}`, 30);
     const body = parseJson(await readBody(req, 4096));
-    return sendJson(res, 200, sync.startLink(body.key, body.name));
+    return sendJson(res, 200, sync.startLink(body.key, body.name, body.proof));
   }
   const poll = /^\/v1\/link\/([A-Za-z0-9_-]{22,64})$/.exec(path);
   if (req.method === 'GET' && poll) {
@@ -373,6 +375,8 @@ Api.prototype.syncRoute = async function syncRoute(req, res, path) {
       // Counted before the body is read: a computer can't make the server read megabytes past its limit.
       sync.rate(who.space);
       raw = limit ? await readBody(req, limit) : (req.resume(), raw);
+      // Signed by the key only that computer's browser has (the token alone isn't enough).
+      sync.proof(who, req, raw);
     } else {
       const s = await this.signed(req, path, limit);
       raw = s.raw;
@@ -402,6 +406,11 @@ Api.prototype.syncRoute = async function syncRoute(req, res, path) {
     if (!who.phone) throw new HttpError(403, 'forbidden', 'Só o celular liga um computador.');
     const body = parseJson(raw);
     return sendJson(res, 200, sync.approveLink(who.install, approve[1], body.wrapped, body.owner));
+  }
+  if (req.method === 'POST' && path === '/v1/link/shared') {
+    if (!who.link) throw new HttpError(403, 'forbidden', 'Só para o computador.');
+    sync.markShared(who.link);
+    return sendJson(res, 200, { ok: true });
   }
   if (req.method === 'DELETE' && path === '/v1/link') {
     if (!who.link) throw new HttpError(403, 'forbidden', 'Só para o computador.');

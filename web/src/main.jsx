@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import * as lock from './core/crypto.js';
 import { Api } from './core/api.js';
 import { Data } from './core/data.js';
-import { Store } from './core/store.js';
+import { Store, MemoryStore } from './core/store.js';
 import { WebSync } from './core/sync.js';
 import { WebMind } from './core/mind.js';
 import { Library } from './core/library.js';
@@ -17,6 +17,7 @@ import { LinkPage, PhonePage, isPhone } from './ui/link.jsx';
 import { smaller } from './ui/write.jsx';
 
 const root = createRoot(document.getElementById('root'));
+let prefs = {};
 
 function prefsSaved() {
   try {
@@ -54,6 +55,34 @@ async function grain() {
   document.documentElement.style.setProperty('--grain', `url("${url}")`);
 }
 
+/** Open in another tab: the Novelo works in one tab at a time (nothing organized twice). */
+function OtherTab({ t, onUse }) {
+  return (
+    <div className="center"><div className="phone"><Yarn size={60} /><h1>{t('otherTab')}</h1><p className="lead">{t('otherTabHint')}</p><button type="button" className="big-btn" onClick={onUse}>{t('useHere')}</button></div></div>
+  );
+}
+
+const ACTIVE = 'novelo-web-active';
+
+/**
+ * [run] in this tab only while no other tab of the page runs it (Web Locks): another tab shows "Usar
+ * aqui", which takes it over — and the tab that had it starts again, now showing the same.
+ */
+function exclusive(run, t) {
+  if (!navigator.locks?.request) return run();
+  const hold = (opts) => navigator.locks.request(ACTIVE, opts, async (held) => {
+    if (!held) return 'busy';
+    await run();
+    return new Promise(() => {}); // kept while this tab lives
+  });
+  const watch = (p) => p.then(
+    (r) => { if (r === 'busy') root.render(<OtherTab t={t} onUse={() => watch(hold({ steal: true }))} />); },
+    () => location.reload(), // taken by another tab
+  );
+  watch(hold({ ifAvailable: true }));
+  return undefined;
+}
+
 function Unlinked({ t }) {
   return (
     <div className="center"><div className="phone"><Yarn size={60} /><h1>{t('unlinked')}</h1><button type="button" className="big-btn" onClick={() => location.reload()}>{t('linkNew')}</button></div></div>
@@ -61,7 +90,7 @@ function Unlinked({ t }) {
 }
 
 async function start() {
-  let prefs = prefsSaved();
+  prefs = prefsSaved();
   look(prefs);
   grain().catch(() => {});
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { look(prefs); grain().catch(() => {}); });
@@ -74,22 +103,41 @@ async function start() {
   const store = await new Store().open();
   const keys = await store.get('keys');
   const token = await store.get('token');
-  if (!keys || !token) {
+  const proof = await store.get('proof');
+  if (!keys || !token || !proof) {
+    // Nothing (or only part of it) here: nothing of a link stays half kept.
+    if (keys || token || proof) await store.wipe().then(() => store.open());
     const api = new Api();
-    root.render(<LinkPage api={api} t={t} onLinked={async ({ token: tok, space, key, owner }) => {
+    root.render(<LinkPage api={api} t={t} onLinked={async ({ token: tok, proof: signer, space, key, owner, shared }) => {
       // The space's key becomes keys that can't be taken out of this browser; the bytes go.
       const k = await lock.spaceKeys(key);
       key.fill(0);
-      await store.set('keys', k);
-      await store.set('token', tok);
-      await store.set('space', space);
-      await store.set('owner', owner);
-      await store.set('cursor', 0);
+      // Someone else's computer: all of it only in this tab's memory, and unlinked when it closes.
+      const where = shared ? new MemoryStore() : store;
+      await where.set('keys', k);
+      await where.set('proof', signer);
+      await where.set('token', tok);
+      await where.set('space', space);
+      await where.set('owner', owner);
+      await where.set('cursor', 0);
+      if (shared) return linked({ store: where, keys: k, token: tok, proof: signer, shared: true, t, lang });
       location.reload();
+      return undefined;
     }} />);
     return;
   }
+  // Read again when this tab becomes the one that works (another may have unlinked meanwhile).
+  store.close();
+  exclusive(async () => {
+    const s2 = await new Store().open();
+    const [k2, tok2, proof2] = [await s2.get('keys'), await s2.get('token'), await s2.get('proof')];
+    if (!k2 || !tok2 || !proof2) return location.reload();
+    return linked({ store: s2, keys: k2, token: tok2, proof: proof2, shared: false, t, lang });
+  }, t);
+}
 
+/** Linked: the space opened here, kept in step with the phone, and the page. */
+async function linked({ store, keys, token, proof, shared, t, lang }) {
   const zone = here();
   const data = new Data();
   let unlinked = false;
@@ -100,14 +148,19 @@ async function start() {
     await store.wipe();
     // The other tabs of this page let go too (their keys are in their memory).
     try { tabs?.postMessage('unlinked'); } catch { /* closed */ }
+    for (const u of sync.urls.values()) URL.revokeObjectURL(u);
     root.render(<Unlinked t={t} />);
   };
   let tabs = null;
-  try {
-    tabs = new BroadcastChannel('novelo-web');
-    tabs.onmessage = (e) => { if (e.data === 'unlinked') unlink(false); };
-  } catch { /* an old browser: each tab finds out by itself (the server says 401) */ }
-  const api = new Api({ token, onUnlinked: () => unlink(false) });
+  // The tabs of this browser's own link hear each other (a tab of someone else's computer is another
+  // link, only in its own memory: it isn't theirs to let go of).
+  if (!shared) {
+    try {
+      tabs = new BroadcastChannel('novelo-web');
+      tabs.onmessage = (e) => { if (e.data === 'unlinked') unlink(false); };
+    } catch { /* an old browser: each tab finds out by itself (the server says 401) */ }
+  }
+  const api = new Api({ token, proof, onUnlinked: () => unlink(false) });
   const syncListeners = new Set();
   let wasOnline = true;
   let thinking = null; // the mind, once made (below)
@@ -161,9 +214,23 @@ async function start() {
   // Seen at once (the sync may be in the middle of a long wait and only notice later).
   addEventListener('offline', () => sync.setStatus({ online: false }));
   addEventListener('beforeunload', () => { sync.saveLocal(); });
+  if (shared) {
+    // Closing (or reloading) the tab unlinks this computer: the request goes even as the tab closes
+    // (keepalive), signed ahead of time (a signature is good for two minutes: made again each minute).
+    let farewell = null;
+    const sign = async () => { farewell = await api.sign('DELETE', '/v1/link').catch(() => farewell); };
+    await sign();
+    setInterval(sign, 60_000);
+    addEventListener('pagehide', () => {
+      if (unlinked || !farewell) return;
+      fetch('/v1/link', { method: 'DELETE', keepalive: true, credentials: 'omit', headers: { Authorization: `Bearer ${token}`, 'X-Novelo-Sig': farewell } }).catch(() => {});
+    });
+    // And the server lets it go by itself if that request never arrives.
+    api.call('POST', '/v1/link/shared').catch(() => {});
+  }
 
   const app = {
-    data, sync, mind, library, zone, lang, t, api, localFiles,
+    data, sync, mind, library, zone, lang, t, api, localFiles, shared,
     owner: await store.get('owner'),
     prefs,
     setPrefs: (p) => {
