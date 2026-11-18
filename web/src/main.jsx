@@ -19,6 +19,19 @@ import { smaller } from './ui/write.jsx';
 const root = createRoot(document.getElementById('root'));
 let prefs = {};
 
+// Installing the page as an app (its own window): the browser's offer, kept for Ajustes' button.
+let installOffer = null;
+const installListeners = new Set();
+addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installOffer = e;
+  installListeners.forEach((f) => f(true));
+});
+addEventListener('appinstalled', () => {
+  installOffer = null;
+  installListeners.forEach((f) => f(false));
+});
+
 function prefsSaved() {
   try {
     return JSON.parse(localStorage.getItem('novelo-prefs') ?? '{}') ?? {};
@@ -32,6 +45,14 @@ function look(prefs) {
   document.documentElement.dataset.mode = dark ? 'dark' : 'light';
   document.documentElement.dataset.accent = prefs.accent ?? 'vermilion';
   document.documentElement.lang = prefs.lang === 'en' ? 'en' : prefs.lang === 'es' ? 'es' : 'pt-BR';
+  // The browser's own frame in the page's color (where it paints one).
+  let meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    document.head.append(meta);
+  }
+  meta.content = dark ? '#221A15' : '#F3EBDD';
 }
 
 /** The paper's grain (the app's: specks about a dp wide, the same every time), made once. */
@@ -243,6 +264,14 @@ async function linked({ store, keys, token, proof, shared, t, lang }) {
     onSync: (f) => { syncListeners.add(f); return () => syncListeners.delete(f); },
     onMind: (f) => { mindListeners.add(f); return () => mindListeners.delete(f); },
     unlink: () => unlink(true),
+    canInstall: () => !!installOffer && !shared,
+    onInstall: (f) => { installListeners.add(f); return () => installListeners.delete(f); },
+    install: async () => {
+      if (!installOffer) return;
+      await installOffer.prompt();
+      installOffer = null;
+      installListeners.forEach((f) => f(false));
+    },
     open: () => {}, openMed: () => {}, view: () => {}, toast: () => {},
   };
   root.render(<Ctx.Provider value={app}><App /></Ctx.Provider>);

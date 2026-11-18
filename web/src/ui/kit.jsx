@@ -1,6 +1,6 @@
 // The small pieces of the page: icons (the app's line icons), the ball of yarn, a card with its
 // stitch, the round check, photos opened here, and how a day and an hour are said.
-import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as T from '../core/time.js';
 import { LOCALE } from './i18n.js';
 
@@ -80,6 +80,22 @@ export function IconBtn({ icon, label, onClick, kind = '', disabled }) {
   );
 }
 
+/**
+ * Closing with a little motion: [leave] marks it as going (the screen plays its way out), and
+ * [onClose] comes when that ends. Returns [leaving, leave].
+ */
+export function useLeave(onClose, ms = 190) {
+  const [leaving, setLeaving] = useState(false);
+  const gone = useRef(false);
+  const leave = () => {
+    if (gone.current) return;
+    gone.current = true;
+    setLeaving(true);
+    setTimeout(onClose, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : ms);
+  };
+  return [leaving, leave];
+}
+
 /** A file of hers, opened here (fetched encrypted, opened with the space's key): an address for the page. */
 export function useBlobUrl(media) {
   const app = useApp();
@@ -102,7 +118,7 @@ export function Photo({ capture, whole = false, onClick, className = 'photo' }) 
   const turn = capture?.turn ?? 0;
   return (
     <button type="button" className={className} onClick={onClick} aria-label={app.t('photo')}>
-      {url ? <img src={url} alt="" style={turn ? { transform: `rotate(${turn}deg)` } : undefined} draggable={false} /> : <span className="wait">{media.image || media.thumb ? '' : app.t('photoOnPhone')}</span>}
+      {url ? <img src={url} alt="" style={turn ? { transform: `rotate(${turn}deg)` } : undefined} draggable={false} onLoad={(e) => e.currentTarget.classList.add('ready')} ref={(el) => { if (el?.complete && el.naturalWidth) el.classList.add('ready'); }} /> : <span className="wait">{media.image || media.thumb ? '' : app.t('photoOnPhone')}</span>}
     </button>
   );
 }

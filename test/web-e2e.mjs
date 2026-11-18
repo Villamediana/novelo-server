@@ -375,6 +375,24 @@ try {
   await phonePage.waitForSelector('text=Baixar o Novelo');
   await shot(phonePage, '12-phone');
 
+  // ---- the same in other window sizes (wide, laptop, narrow with the icon rail, small with the bottom bar)
+  await page.emulateMedia({ colorScheme: 'light' });
+  for (const [w, h] of [[1440, 900], [1024, 760], [820, 720], [520, 860]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.evaluate(() => { location.hash = '#/tasks'; });
+    await page.waitForSelector('.card:has-text("Fechar contrato da torre de Campinas")');
+    await shot(page, `20-${w}-tasks`);
+    await page.click('.card:has-text("Fechar contrato da torre de Campinas") .title');
+    await page.waitForSelector('.panel .title-edit');
+    await shot(page, `21-${w}-entry`);
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.panel', { state: 'detached' });
+    await page.evaluate(() => { location.hash = '#/write'; });
+    await page.waitForSelector('.write textarea');
+    await shot(page, `22-${w}-write`);
+  }
+  await page.setViewportSize({ width: 1360, height: 860 });
+
   // ---- unlinked from Ajustes: nothing of it stays in the browser, the server forgets it
   await page.emulateMedia({ colorScheme: 'light' });
   await page.click('button.nav:has-text("Ajustes")');
