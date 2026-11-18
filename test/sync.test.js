@@ -246,6 +246,17 @@ test('as páginas: mesma origem, sem script de fora; o Android sabe abrir o cód
   assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.match(page.headers.get('content-security-policy'), /require-trusted-types-for 'script'/);
   assert.match(page.headers.get('cache-control'), /no-transform/);
+  // The script and the style are named by their version: kept for good under that name, and a new
+  // version has another one (no cache keeps an old page after an update).
+  const html = await page.text();
+  const js = /src="app\.js\?v=([\w-]{22})"/.exec(html);
+  const css = /href="style\.css\?v=([\w-]{22})"/.exec(html);
+  assert.ok(js && css, html);
+  const asset = await fetch(`${server.url}/web/app.js?v=${js[1]}`);
+  assert.match(asset.headers.get('cache-control'), /max-age=31536000, immutable/);
+  assert.equal(asset.headers.get('etag'), `"${js[1]}"`);
+  assert.match((await fetch(`${server.url}/web/app.js?v=velha`)).headers.get('cache-control'), /no-cache/);
+  assert.match((await fetch(`${server.url}/web/style.css`)).headers.get('cache-control'), /no-cache/);
   const etag = page.headers.get('etag');
   assert.equal((await fetch(`${server.url}/web/`, { headers: { 'If-None-Match': etag } })).status, 304);
   // A page of the app (the link from the QR code) is the app itself.
