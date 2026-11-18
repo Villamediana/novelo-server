@@ -86,13 +86,20 @@ export class WebPages {
     // A page of the app (no file of that name, no extension): the app itself, which reads the address.
     let file = this.file(rel);
     if (!file && !path.extname(rel)) file = this.file('index.html');
+    if (file && path.basename(file.path) === 'index.html') file = this.page(file);
+    // Asked by its version (the page names its script and style with their hash): kept for good —
+    // a new version has another address, so no cache on the way (the browser's, Cloudflare's) keeps
+    // an old one after an update.
+    const v = new URL(req.url, 'http://x').searchParams.get('v');
+    const forever = !!file && !!v && v === file.etag.slice(1, -1);
     if (!file) {
       const body = Buffer.from('Não existe.');
       res.writeHead(404, { ...HEADERS, 'Content-Type': 'text/plain; charset=utf-8', 'Content-Length': body.length });
       return res.end(body);
     }
+    const cache = forever ? 'public, max-age=31536000, immutable, no-transform' : 'no-cache, no-transform';
     if (req.headers['if-none-match'] === file.etag) {
-      res.writeHead(304, { ...HEADERS, ETag: file.etag, 'Cache-Control': 'no-cache, no-transform' });
+      res.writeHead(304, { ...HEADERS, ETag: file.etag, 'Cache-Control': cache });
       return res.end();
     }
     res.writeHead(200, {
@@ -100,11 +107,24 @@ export class WebPages {
       'Content-Type': TYPES[path.extname(file.path)] ?? 'application/octet-stream',
       'Content-Length': file.bytes.length,
       ETag: file.etag,
-      // Always asked again (a 304 when it didn't change): a new version reaches everyone at once.
-      // no-transform: nothing on the way changes the page (no script put in by a proxy or CDN).
-      'Cache-Control': 'no-cache, no-transform',
+      // Otherwise always asked again (a 304 when it didn't change): a new version reaches everyone at
+      // once. no-transform: nothing on the way changes the page (no script put in by a proxy or CDN).
+      'Cache-Control': cache,
     });
     return res.end(req.method === 'HEAD' ? undefined : file.bytes);
+  }
+
+  /** The page, naming its script, style and manifest by their version (?v=<hash>). */
+  page(index) {
+    const parts = ['app.js', 'style.css', 'manifest.webmanifest'].map((n) => [n, this.file(n)]);
+    const key = index.etag + parts.map(([, f]) => f?.etag ?? '').join('');
+    if (this.pageKey === key) return this.pageFile;
+    let html = index.bytes.toString('utf8');
+    for (const [n, f] of parts) if (f) html = html.replaceAll(`"${n}"`, `"${n}?v=${f.etag.slice(1, -1)}"`);
+    const bytes = Buffer.from(html);
+    this.pageKey = key;
+    this.pageFile = { path: index.path, bytes, etag: `"${crypto.createHash('sha256').update(bytes).digest('base64url').slice(0, 22)}"` };
+    return this.pageFile;
   }
 
   /** A file of web/, only from inside it; null when there is none. */
