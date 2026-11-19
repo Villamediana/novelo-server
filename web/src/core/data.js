@@ -2,14 +2,14 @@
 // same ids. Every change made here is marked to go up (see sync.js); what comes down is put in with
 // [put] (not marked). Listeners are told after each change (the screens draw again).
 
-/** The columns of each table and what a new row has in them (the phone's database, version 16). */
+/** The columns of each table and what a new row has in them (the phone's database, version 17). */
 export const SCHEMA = {
   entries: {
     pk: ['id'],
     defaults: {
       id: 0, kind: 'note', title: '', body: '', status: null, steps: '[]', tags: '[]', dueAt: null, dueHasTime: 0, remindAt: null, checkInAt: null,
       sensitive: 0, createdAt: 0, updatedAt: 0, doneAt: null, captureId: null, repeat: null, position: null, category: null, rungAt: null,
-      occursFrom: null, doneTimes: '[]', alarm: 1,
+      occursFrom: null, doneTimes: '[]', alarm: 1, summary: '',
     },
   },
   captures: {

@@ -5,6 +5,7 @@ import * as R from '../core/repeat.js';
 import { Steps, kindOf, statusOf, Categories } from '../core/words.js';
 import { photosOf, filesOf, soundsOf } from '../core/attached.js';
 import { FileKind } from '../core/brain.js';
+import * as Summary from '../core/summary.js';
 import { safeType } from '../core/sync.js';
 import { Check, Icon, IconBtn, Photo, useApp, useData, when, toInput, fromInput, grow, useBlobUrl, useLeave } from './kit.jsx';
 
@@ -27,6 +28,23 @@ function FileRow({ c }) {
       <div className="grow"><div className="title">{c.fileName}</div><div className="meta">{c.description ?? FileKind.size(c.fileSize ?? 0)}</div></div>
       <IconBtn icon="download" label={app.t('download')} onClick={open} />
     </div>
+  );
+}
+
+/** "Em tópicos": a long note's points, above its text (app 1.80) — what it is about a little stronger. */
+function Points({ summary, t }) {
+  const points = Summary.read(summary);
+  if (!points.length) return null;
+  return (
+    <section className="points" aria-label={t('inTopics')}>
+      <div className="points-head">{t('inTopics')}</div>
+      <ul>
+        {points.map((p, i) => {
+          const l = Summary.label(p);
+          return <li key={`${i}-${p}`}>{l ? <><strong>{l[0]}:</strong> {l[1]}</> : p}</li>;
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -100,6 +118,7 @@ export function EntryPanel({ id, fresh, onClose }) {
             </>
           ) : null}
         </div>
+        {kind === 'note' && !(e.sensitive && !showHidden) ? <Points summary={e.summary} t={t} /> : null}
         {e.sensitive && !showHidden ? (
           <div className="hidden-body"><Icon name="lock" /> <button type="button" className="pill" onClick={() => setShowHidden(true)}>{t('show')}</button></div>
         ) : (

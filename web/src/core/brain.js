@@ -5,6 +5,7 @@ import * as T from './time.js';
 import * as R from './repeat.js';
 import * as D from './doses.js';
 import { Steps, kindOf, kindKey, statusOf, isOpenTask, take, isBlank } from './words.js';
+import * as Summary from './summary.js';
 export { SYSTEM } from './prompt.js';
 
 const MAX_TASKS = 30;
@@ -18,6 +19,7 @@ const BEFORE_SAID = 400;
 const BEFORE_REPLY = 200;
 const MAX_BEFORE_ITEMS = 6;
 const FOCUS_BODY = 800;
+const SUMMARY_LINE = 400;
 export const PEEK = 800;
 const SEEN = 400;
 
@@ -121,6 +123,11 @@ export function line(e, zone, now, long = false, bodyMax = 220) {
   }
   const steps = Steps.read(e.steps);
   if (steps.length) s += ` · etapas: ${steps.map((st) => (st.done ? '[x] ' : '[ ] ') + take(st.text, 40)).join(' ')}`;
+  // A note's points ("Em tópicos"): the whole of it in short, even when its text is cut below.
+  if (long && kind === 'note' && !e.sensitive) {
+    const points = Summary.read(e.summary);
+    if (points.length) s += ` · em tópicos: ${take(points.join(' | '), SUMMARY_LINE)}`;
+  }
   if (long && !isBlank(e.body)) {
     const body = e.sensitive ? take(e.body, 160) : take(e.body, bodyMax);
     s += ` — ${nl(body)}`;
@@ -326,12 +333,12 @@ export function parse(answer) {
   const plan = {
     reply: str(raw.reply) ?? '',
     create: (Array.isArray(raw.create) ? raw.create : []).filter((c) => c && typeof c === 'object' && typeof c.kind === 'string' && typeof c.title === 'string').map((c) => ({
-      kind: c.kind, title: c.title, body: str(c.body) ?? '', tags: strings(c.tags), entities: topicsOf(c.entities), category: str(c.category),
+      kind: c.kind, title: c.title, body: str(c.body) ?? '', summary: Summary.points(c.summary), tags: strings(c.tags), entities: topicsOf(c.entities), category: str(c.category),
       due: str(c.due), remindAt: str(c.remind_at), checkInAt: str(c.check_in_at), repeat: repeatAsk(c.repeat), steps: strings(c.steps),
       status: str(c.status), sensitive: bool(c.sensitive), related: longs(c.related), photos: picks(c.photos), files: picks(c.files), alarm: optBool(c.alarm),
     })).filter((c) => !isBlank(c.title) && kindKey(c.kind) !== null),
     update: (Array.isArray(raw.update) ? raw.update : []).filter((c) => c && typeof c === 'object' && longs(c.id).length).map((c) => ({
-      id: longs(c.id)[0], status: str(c.status), stepsDone: strings(c.steps_done), addSteps: strings(c.add_steps), title: str(c.title), append: str(c.append), body: str(c.body),
+      id: longs(c.id)[0], status: str(c.status), stepsDone: strings(c.steps_done), addSteps: strings(c.add_steps), title: str(c.title), append: str(c.append), body: str(c.body), summary: Summary.points(c.summary),
       category: str(c.category), due: str(c.due), remindAt: str(c.remind_at), checkInAt: str(c.check_in_at), repeat: repeatAsk(c.repeat), entities: topicsOf(c.entities),
       delete: bool(c.delete), photos: picks(c.photos), files: picks(c.files), alarm: optBool(c.alarm),
     })),

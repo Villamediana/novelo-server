@@ -145,6 +145,12 @@ pedaços de até ~55 s nas pausas e manda cada um como WAV pro `hear` do servido
 mesmo pedido do app (`web/src/core/voice.js`). As palavras caem na caixa: ela lê e guarda. Nada do áudio
 fica. `Permissions-Policy: microphone=(self)`; Esc descarta a gravação.
 
+**Em tópicos** (app 1.80): a nota mostra, em cima do texto, os pontos do que ficou entendido
+(`entries.summary`, um ponto por linha; o assunto antes de ":" em semibold). Se a nota pede tópicos quem
+decide é o modelo (escreve em `summary`); `web/src/core/summary.js` só limpa (o mesmo do `mind/Summary.kt`).
+O `keeper.js` troca os pontos quando chega notícia com eles e apaga quando o texto é reescrito sem eles.
+Nota escondida (sensível): os pontos também.
+
 CSP: só scripts e estilos da própria origem, imagens e sons só dela ou `blob:`, nada de iframes, workers,
 formulários ou `base`, `frame-ancestors 'none'` e **Trusted Types** (nenhum texto vira HTML ou script).
 Fora isso: HSTS, `nosniff`, `no-referrer`, COOP/CORP, Permissions-Policy. Um arquivo aberto na página

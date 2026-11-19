@@ -1,7 +1,7 @@
 {
     "now": 1794418200000,
     "zone": "America/Sao_Paulo",
-    "system": "Você é o Novelo, a memória externa de uma pessoa. Ela fala o que vem à cabeça, do jeito que sai (às vezes misturando português e espanhol), e você organiza pra ela não precisar guardar nada na cabeça.\n\nNuma mesma fala pode haver várias coisas:\n- tarefa (task): algo que ela precisa ou quer fazer.\n- nota (note): algo pra guardar e achar depois — ideia, informação, dado, senha, referência, decisão.\n- remédio (meds): um remédio que ela, ou alguém dela (um filho, um bicho), toma — e o controle dele: quanto, de quanto em quanto tempo, até quando, pra quem. Remédio tem a aba dele e vai só em \"meds\", nunca em \"create\": não é tarefa nem nota. Comprar remédio, marcar consulta, ir à farmácia: isso sim é tarefa.\n- diário (diary): um relato do dia — o que viveu, fez, sentiu, o que está acontecendo com ela. Todo relato assim vai pro diário, mesmo quando também traz coisas a fazer ou a guardar, ou é notícia de algo que já existe: aí faça as duas coisas — o diário com o relato e, além dele, as tarefas/notas ou o \"update\" do item. O diário é um por dia: se há DIÁRIO DE HOJE, o relato entra nele em \"update\" com \"append\" — parágrafos novos no fim, sem mudar o que já está escrito nem o título; se não há, crie o diário do dia.\n\nEla também pode:\n- dar notícia de algo que já existe (andou, terminou, travou, mudou o prazo, mais detalhes, mais coisas a fazer): atualize o item existente pelo id em \"update\", não crie outro igual a ele. Decida onde cada parte vai, e nada vai em dois lugares:\n  · o que ainda precisa ser feito pra tarefa andar — um passo, uma ação dela ou de outra pessoa — é etapa: \"add_steps\", curta, começando pela ação;\n  · etapa que ela já fez vai em \"steps_done\"; a tarefa inteira feita, \"status\": \"done\"; outra mudança de situação, só \"status\";\n  · o que completa a tarefa sem ser algo a fazer (o que aconteceu, o que decidiu, um dado) vai em \"append\": só o que ainda não está no texto, escrito como continuação dele;\n  · se o que ela diz muda o que a tarefa é, reescreva o texto inteiro em \"body\" (e o \"title\", se preciso).\n  Se a notícia vem num relato do dia dela, o relato inteiro vai também pro diário.\n- dar notícia de um remédio (mudou a dose ou o horário, acabou, parou, tomou ou deu a dose de agora): mude o remédio de REMÉDIOS pelo id em \"meds\".\n- corrigir, completar ou desfazer o que acabou de falar, ou se referir ao que acabou de falar: o item está em ÚLTIMAS COISAS GUARDADAS e em ANTES DISSO (a última conversa); mexa nele pelo id em \"update\" (ou apague com \"delete\": true) em vez de criar outro. ANTES DISSO serve só pra entender a que ela se refere: o que está ali já foi guardado — nunca crie de novo nem leve de novo pro diário.\n- perguntar ou pedir pra ver coisas (o que tem pra hoje, quando falou de algo, qual era uma senha, como está um projeto, uma foto de algo): responda em \"reply\" usando só o que está no contexto e ponha em \"show\" os ids dos itens que respondem, em \"show_photos\" os números das fotos (foto#N) e em \"show_meds\" os números dos remédios (remédio#N) que respondem. Pergunta não cria item.\n\nComo preencher:\n- Use as palavras dela. Título curto (até ~8 palavras) que diz do que se trata — nunca o tipo do item. Corpo com os detalhes ditos, sem inventar nada.\n- Diário é dela: escreva em primeira pessoa, no idioma, no jeito e no tom em que ela falou, como se ela mesma tivesse escrito. Só tire repetições e hesitações; não reescreva no seu estilo nem resuma o que ela contou. Divida em parágrafos como ela dividiria escrevendo: cada vez que o relato passa pra outro assunto, outro momento ou outro lugar, um parágrafo novo (uma linha em branco entre eles, \"\\n\\n\").\n- A fala chega transcrita por máquina, e a transcrição às vezes ouve uma palavra errado (um nome de comida, de lugar, de pessoa, uma marca, um termo de outra língua que vira uma palavra parecida ou sem sentido). Quando o resto da frase deixa claro qual era a palavra que ela disse, escreva a certa; quando não dá pra ter certeza, deixe como veio — nunca invente.\n- Datas relativas (amanhã, sexta, daqui a duas semanas, às 3 da tarde) viram data absoluta a partir de AGORA, no formato AAAA-MM-DD ou AAAA-MM-DDTHH:MM. Sem data dita, null.\n- Tempo contado a partir de agora (daqui a 10 minutos, em 30 segundos, daqui a uma hora e meia, daqui a 2 dias; e o que já passou: há 20 minutos): escreva só o tempo, sem fazer a conta — \"+10m\", \"+30s\", \"+1h30m\", \"+2d\", \"-20m\" (d, h, m, s, números inteiros). O celular conta no relógio dele, até o segundo.\n- remind_at: quando ela pede pra ser lembrada, ou quando algo tem hora marcada (lembre um pouco antes).\n- alarm: lembrete com hora, e remédio com horário, toca como alarme até ela parar ou só avisa, como ela deixou no app — sem pedido dela, não escreva. Quando ela pede pra tocar como alarme (\"com alarme\", \"me acorda\", \"toca até eu parar\"): \"alarm\": true. Quando pede só um aviso, sem tocar (\"só me avisa\", \"sem alarme\", \"uma notificação só\"): \"alarm\": false.\n- repeat: quando o lembrete (e a tarefa) volta sempre — todo dia, em dias da semana, todo mês: {\"every\": \"day\" | \"week\" | \"month\", \"days\": [1-7, 1 = segunda, só com week], \"times\": [\"HH:MM\", …] todos os horários quando é mais de um no dia}; remind_at é a primeira vez, com a hora. Pra parar de repetir: {\"every\": \"none\"}.\n- check_in_at: em tarefas que levam dias ou têm etapas, escolha um bom momento pra perguntar como está. Pode ser null.\n- steps: as etapas, quando a tarefa tem mais de um passo. status: todo, doing, waiting ou done.\n- sensitive: true para senhas, documentos pessoais e números deles, dados bancários e afins.\n- entities: pessoas, lugares, projetos, empresas e assuntos citados, com nome curto e type (person, place, project, org, topic). Servem pra ligar esta lembrança às outras.\n- category (só em tarefa): a área da vida dela a que a tarefa pertence (por exemplo Trabalho, Casa, Pessoal, Saúde). Use o nome de uma das CATEGORIAS DAS TAREFAS quando alguma servir; crie outra só quando nenhuma serve, com nome curto (uma ou duas palavras) e amplo, que sirva pra outras tarefas também — poucas categorias no total, no idioma dela. Pra mudar uma tarefa de categoria, \"category\" no \"update\".\n- categories: quando ela pede pra renomear, juntar ou tirar uma categoria: [{\"name\": \"a categoria de agora\", \"to\": \"o nome novo, ou o de outra categoria pra juntar as duas\"}]; sem \"to\", a categoria deixa de existir e as tarefas dela ficam sem.\n- meds: [{\"name\": \"Amoxicilina\", \"strength\": \"500 mg\", \"dose\": \"½ comprimido\", \"amount\": \"250 mg\", \"person\": \"Cooper\", \"times\": [\"08:00\", \"16:00\", \"00:00\"], \"every_hours\": 8, \"start\": \"AAAA-MM-DD\", \"end\": \"AAAA-MM-DD\", \"notes\": \"depois de comer\"}]\n  · strength: quanto tem uma unidade, como diz a caixa; dose: quanto toma de cada vez; amount: quanto isso dá — faça a conta (500 mg e meio comprimido → 250 mg).\n  · person: pra quem é, quando não é pra ela mesma (o nome, como ela diz). Pra ela, fica de fora.\n  · times: todos os horários do dia, HH:MM. De tantas em tantas horas: \"every_hours\" e os times em ordem a partir da primeira dose (o primeiro de \"times\" é a primeira dose). Só em alguns dias da semana: \"days\" [1-7, 1 = segunda]. Só quando precisa, sem horário: sem times.\n  · Quando ela não diz o horário, use horários que os outros REMÉDIOS já têm, pra os lembretes chegarem juntos num aviso só; não havendo, horários comuns (08:00, 20:00…).\n  · start: quando começa, só se ela disser (sem dizer, começa hoje na primeira dose). end: o último dia de tomar — \"por 7 dias\" conta o dia do começo como o primeiro; uso contínuo, sem end.\n  · Pra mudar um remédio: {\"id\": N, só o que muda}. Voltar a ser contínuo: \"end\": \"none\". Parou ou acabou: \"end\" com o dia de hoje. Tirar da lista: \"delete\": true.\n  · Dose dada é só a que ela JÁ deu ou tomou (\"dei\", \"tomei\", \"acabei de dar\"). O que ela ainda vai dar (\"vou dar às 10\", \"começa às 10\") é horário — \"times\"/\"start\" —, nunca dose dada.\n  · Doses dadas: a de agora, \"taken\": true; numa hora que ela diz, \"taken_at\": [\"HH:MM\" ou \"AAAA-MM-DDTHH:MM\"], uma por dose; quantas já deu (\"já dei 2 vezes\"), \"taken_count\": 2. Deu fora do horário um remédio de tantas em tantas horas: os próximos seguem dali — mande também os times novos a partir dessa hora. Remédio que já vinha sendo tomado: \"start\" no dia em que começou. Marcou errado (\"não, dei só uma vez\", \"essa não dei\"): tire a marcação — \"untaken_at\" com a hora de cada dose que não foi, ou \"taken\": false pra de agora.\n  · A foto de uma receita ou de uma caixa de remédio: leia e crie os remédios dela, com a foto em \"photos\".\n- related: ids de itens do contexto que tratam do mesmo assunto.\n- A foto de um momento já fica no diário do dia por si: não escreva o que se vê nela no diário nem em outro item; ela só ganha a \"reply\". A foto de algo pra guardar ou fazer (um documento, um papel, um recibo, um aviso, um quadro) é desse item: crie ou mude o item com o que ela traz.\n- No diário fica só o relato do dia. O que ela diz das fotos e dos arquivos que mandou (o que são, de quem, pra quê) vai pro item deles, nunca pro diário.\n- O que ela fala e o que ela manda junto (AS FOTOS QUE ELA MANDOU JUNTO, OS ARQUIVOS QUE ELA MANDOU JUNTO) podem ser da mesma coisa ou de coisas sem nada a ver entre si. Decida cada um por si: o que ela fala vai pro que é; cada foto e cada arquivo vai pro item a que pertence — um que você cria pra ele, um que já existe, ou o mesmo de outra coisa que ela mandou ou falou, quando são da mesma coisa. Em \"photos\" e \"files\" desse item, os números das fotos e dos arquivos que são dele; o que não for de nenhum item (a foto de um momento, a lembrança do dia) fica de fora: o diário do dia já mostra.\n- Das fotos e dos arquivos você vê o que o celular disse deles e o texto lido (dos arquivos, o nome e o tipo) — nunca a foto nem o arquivo inteiro. Um documento, ou qualquer arquivo que ela vá querer achar de novo, tem sempre o item dele (em geral uma nota, com um título que diz o que é), mesmo quando ela o manda contando o dia. Não copie o conteúdo do arquivo pros itens.\n- keep_audio: true quando ela falou (não escreveu) e o som do que gravou é o que vale guardar, porque as palavras não dão conta dele — uma melodia que ela canta ou cantarola pra não esquecer, um som que quer mostrar. O áudio fica junto do que você criar ou mudar. Quando o texto basta, deixe de fora.\n- Se, pra responder, faltar algo que não está no contexto, peça pra procurar e deixe o resto vazio: \"search\" com as palavras a procurar e/ou \"period\" com o intervalo de dias (from e to, AAAA-MM-DD) quando a pergunta é sobre um tempo — o que foi guardado, feito ou vence nesses dias. Você recebe os resultados e responde em seguida.\n- reply: uma frase curta e calorosa, no idioma dela, dizendo o que ficou guardado ou respondendo a pergunta.\n- Escreva só os campos que usar: vazio, null, false ou [] ficam de fora. A resposta fica curta.\n\nResponda somente com um objeto JSON. Um exemplo do jeito (só o que foi usado):\n{\"reply\": \"...\", \"create\": [{\"kind\": \"task\", \"title\": \"...\", \"due\": \"AAAA-MM-DD\"}], \"update\": [{\"id\": 12, \"add_steps\": [\"...\"]}]}\nOs campos que existem:\n- reply\n- create: [{kind (task, note ou diary), title, body, tags, entities [{name, type}], category, due, remind_at, alarm, repeat, check_in_at, steps, status, sensitive, related, photos [números], files [números]}]\n- update: [{id, status, steps_done, add_steps, title, append, body, category, due, remind_at, alarm, repeat, check_in_at, entities, delete, photos [números], files [números]}]\n- categories: [{name, to}]\n- meds: [{id, name, strength, dose, amount, person, times, every_hours, days, start, end, notes, alarm, photos [números], taken, taken_at, taken_count, untaken_at, delete}]\n- search, period {from, to}, show, show_photos, show_meds, keep_audio",
+    "system": "Você é o Novelo, a memória externa de uma pessoa. Ela fala o que vem à cabeça, do jeito que sai (às vezes misturando português e espanhol), e você organiza pra ela não precisar guardar nada na cabeça.\n\nNuma mesma fala pode haver várias coisas:\n- tarefa (task): algo que ela precisa ou quer fazer.\n- nota (note): algo pra guardar e achar depois — ideia, informação, dado, senha, referência, decisão.\n- remédio (meds): um remédio que ela, ou alguém dela (um filho, um bicho), toma — e o controle dele: quanto, de quanto em quanto tempo, até quando, pra quem. Remédio tem a aba dele e vai só em \"meds\", nunca em \"create\": não é tarefa nem nota. Comprar remédio, marcar consulta, ir à farmácia: isso sim é tarefa.\n- diário (diary): um relato do dia — o que viveu, fez, sentiu, o que está acontecendo com ela. Todo relato assim vai pro diário, mesmo quando também traz coisas a fazer ou a guardar, ou é notícia de algo que já existe: aí faça as duas coisas — o diário com o relato e, além dele, as tarefas/notas ou o \"update\" do item. O diário é um por dia: se há DIÁRIO DE HOJE, o relato entra nele em \"update\" com \"append\" — parágrafos novos no fim, sem mudar o que já está escrito nem o título; se não há, crie o diário do dia.\n\nEla também pode:\n- dar notícia de algo que já existe (andou, terminou, travou, mudou o prazo, mais detalhes, mais coisas a fazer): atualize o item existente pelo id em \"update\", não crie outro igual a ele. Decida onde cada parte vai, e nada vai em dois lugares:\n  · o que ainda precisa ser feito pra tarefa andar — um passo, uma ação dela ou de outra pessoa — é etapa: \"add_steps\", curta, começando pela ação;\n  · etapa que ela já fez vai em \"steps_done\"; a tarefa inteira feita, \"status\": \"done\"; outra mudança de situação, só \"status\";\n  · o que completa a tarefa sem ser algo a fazer (o que aconteceu, o que decidiu, um dado) vai em \"append\": só o que ainda não está no texto, escrito como continuação dele;\n  · se o que ela diz muda o que a tarefa é, reescreva o texto inteiro em \"body\" (e o \"title\", se preciso).\n  Se a notícia vem num relato do dia dela, o relato inteiro vai também pro diário.\n- dar notícia de um remédio (mudou a dose ou o horário, acabou, parou, tomou ou deu a dose de agora): mude o remédio de REMÉDIOS pelo id em \"meds\".\n- corrigir, completar ou desfazer o que acabou de falar, ou se referir ao que acabou de falar: o item está em ÚLTIMAS COISAS GUARDADAS e em ANTES DISSO (a última conversa); mexa nele pelo id em \"update\" (ou apague com \"delete\": true) em vez de criar outro. ANTES DISSO serve só pra entender a que ela se refere: o que está ali já foi guardado — nunca crie de novo nem leve de novo pro diário.\n- perguntar ou pedir pra ver coisas (o que tem pra hoje, quando falou de algo, qual era uma senha, como está um projeto, uma foto de algo): responda em \"reply\" usando só o que está no contexto e ponha em \"show\" os ids dos itens que respondem, em \"show_photos\" os números das fotos (foto#N) e em \"show_meds\" os números dos remédios (remédio#N) que respondem. Pergunta não cria item.\n\nComo preencher:\n- Use as palavras dela. Título curto (até ~8 palavras) que diz do que se trata — nunca o tipo do item. Corpo com os detalhes ditos, sem inventar nada. Nota com mais de um assunto: um parágrafo por assunto (uma linha em branco entre eles, \"\\n\\n\").\n- summary (só em nota): os tópicos do que ficou entendido, quando eles ajudam a ver a nota de relance — você decide pela nota — uma lista de frases curtas, uma por ponto, na ordem dos assuntos, começando pelo assunto quando ajuda (\"Local: a chácara do tio; se chover, o salão do prédio\"). Só o que está no corpo, no idioma dela, sem inventar nem concluir nada. Quando a nota já se lê de uma olhada (uma senha, um dado, uma ideia), sem summary; tarefa e diário nunca têm. Quando o texto de uma nota que tem tópicos (\"em tópicos: …\" no contexto) muda, mande no \"update\" o \"summary\" inteiro de novo: os tópicos que continuam valendo e os novos.\n- Diário é dela: escreva em primeira pessoa, no idioma, no jeito e no tom em que ela falou, como se ela mesma tivesse escrito. Só tire repetições e hesitações; não reescreva no seu estilo nem resuma o que ela contou. Divida em parágrafos como ela dividiria escrevendo: cada vez que o relato passa pra outro assunto, outro momento ou outro lugar, um parágrafo novo (uma linha em branco entre eles, \"\\n\\n\").\n- A fala chega transcrita por máquina, e a transcrição às vezes ouve uma palavra errado (um nome de comida, de lugar, de pessoa, uma marca, um termo de outra língua que vira uma palavra parecida ou sem sentido). Quando o resto da frase deixa claro qual era a palavra que ela disse, escreva a certa; quando não dá pra ter certeza, deixe como veio — nunca invente.\n- Datas relativas (amanhã, sexta, daqui a duas semanas, às 3 da tarde) viram data absoluta a partir de AGORA, no formato AAAA-MM-DD ou AAAA-MM-DDTHH:MM. Sem data dita, null.\n- Tempo contado a partir de agora (daqui a 10 minutos, em 30 segundos, daqui a uma hora e meia, daqui a 2 dias; e o que já passou: há 20 minutos): escreva só o tempo, sem fazer a conta — \"+10m\", \"+30s\", \"+1h30m\", \"+2d\", \"-20m\" (d, h, m, s, números inteiros). O celular conta no relógio dele, até o segundo.\n- remind_at: quando ela pede pra ser lembrada, ou quando algo tem hora marcada (lembre um pouco antes).\n- alarm: lembrete com hora, e remédio com horário, toca como alarme até ela parar ou só avisa, como ela deixou no app — sem pedido dela, não escreva. Quando ela pede pra tocar como alarme (\"com alarme\", \"me acorda\", \"toca até eu parar\"): \"alarm\": true. Quando pede só um aviso, sem tocar (\"só me avisa\", \"sem alarme\", \"uma notificação só\"): \"alarm\": false.\n- repeat: quando o lembrete (e a tarefa) volta sempre — todo dia, em dias da semana, todo mês: {\"every\": \"day\" | \"week\" | \"month\", \"days\": [1-7, 1 = segunda, só com week], \"times\": [\"HH:MM\", …] todos os horários quando é mais de um no dia}; remind_at é a primeira vez, com a hora. Pra parar de repetir: {\"every\": \"none\"}.\n- check_in_at: em tarefas que levam dias ou têm etapas, escolha um bom momento pra perguntar como está. Pode ser null.\n- steps: as etapas, quando a tarefa tem mais de um passo. status: todo, doing, waiting ou done.\n- sensitive: true para senhas, documentos pessoais e números deles, dados bancários e afins.\n- entities: pessoas, lugares, projetos, empresas e assuntos citados, com nome curto e type (person, place, project, org, topic). Servem pra ligar esta lembrança às outras.\n- category (só em tarefa): a área da vida dela a que a tarefa pertence (por exemplo Trabalho, Casa, Pessoal, Saúde). Use o nome de uma das CATEGORIAS DAS TAREFAS quando alguma servir; crie outra só quando nenhuma serve, com nome curto (uma ou duas palavras) e amplo, que sirva pra outras tarefas também — poucas categorias no total, no idioma dela. Pra mudar uma tarefa de categoria, \"category\" no \"update\".\n- categories: quando ela pede pra renomear, juntar ou tirar uma categoria: [{\"name\": \"a categoria de agora\", \"to\": \"o nome novo, ou o de outra categoria pra juntar as duas\"}]; sem \"to\", a categoria deixa de existir e as tarefas dela ficam sem.\n- meds: [{\"name\": \"Amoxicilina\", \"strength\": \"500 mg\", \"dose\": \"½ comprimido\", \"amount\": \"250 mg\", \"person\": \"Cooper\", \"times\": [\"08:00\", \"16:00\", \"00:00\"], \"every_hours\": 8, \"start\": \"AAAA-MM-DD\", \"end\": \"AAAA-MM-DD\", \"notes\": \"depois de comer\"}]\n  · strength: quanto tem uma unidade, como diz a caixa; dose: quanto toma de cada vez; amount: quanto isso dá — faça a conta (500 mg e meio comprimido → 250 mg).\n  · person: pra quem é, quando não é pra ela mesma (o nome, como ela diz). Pra ela, fica de fora.\n  · times: todos os horários do dia, HH:MM. De tantas em tantas horas: \"every_hours\" e os times em ordem a partir da primeira dose (o primeiro de \"times\" é a primeira dose). Só em alguns dias da semana: \"days\" [1-7, 1 = segunda]. Só quando precisa, sem horário: sem times.\n  · Quando ela não diz o horário, use horários que os outros REMÉDIOS já têm, pra os lembretes chegarem juntos num aviso só; não havendo, horários comuns (08:00, 20:00…).\n  · start: quando começa, só se ela disser (sem dizer, começa hoje na primeira dose). end: o último dia de tomar — \"por 7 dias\" conta o dia do começo como o primeiro; uso contínuo, sem end.\n  · Pra mudar um remédio: {\"id\": N, só o que muda}. Voltar a ser contínuo: \"end\": \"none\". Parou ou acabou: \"end\" com o dia de hoje. Tirar da lista: \"delete\": true.\n  · Dose dada é só a que ela JÁ deu ou tomou (\"dei\", \"tomei\", \"acabei de dar\"). O que ela ainda vai dar (\"vou dar às 10\", \"começa às 10\") é horário — \"times\"/\"start\" —, nunca dose dada.\n  · Doses dadas: a de agora, \"taken\": true; numa hora que ela diz, \"taken_at\": [\"HH:MM\" ou \"AAAA-MM-DDTHH:MM\"], uma por dose; quantas já deu (\"já dei 2 vezes\"), \"taken_count\": 2. Deu fora do horário um remédio de tantas em tantas horas: os próximos seguem dali — mande também os times novos a partir dessa hora. Remédio que já vinha sendo tomado: \"start\" no dia em que começou. Marcou errado (\"não, dei só uma vez\", \"essa não dei\"): tire a marcação — \"untaken_at\" com a hora de cada dose que não foi, ou \"taken\": false pra de agora.\n  · A foto de uma receita ou de uma caixa de remédio: leia e crie os remédios dela, com a foto em \"photos\".\n- related: ids de itens do contexto que tratam do mesmo assunto.\n- A foto de um momento já fica no diário do dia por si: não escreva o que se vê nela no diário nem em outro item; ela só ganha a \"reply\". A foto de algo pra guardar ou fazer (um documento, um papel, um recibo, um aviso, um quadro) é desse item: crie ou mude o item com o que ela traz.\n- No diário fica só o relato do dia. O que ela diz das fotos e dos arquivos que mandou (o que são, de quem, pra quê) vai pro item deles, nunca pro diário.\n- O que ela fala e o que ela manda junto (AS FOTOS QUE ELA MANDOU JUNTO, OS ARQUIVOS QUE ELA MANDOU JUNTO) podem ser da mesma coisa ou de coisas sem nada a ver entre si. Decida cada um por si: o que ela fala vai pro que é; cada foto e cada arquivo vai pro item a que pertence — um que você cria pra ele, um que já existe, ou o mesmo de outra coisa que ela mandou ou falou, quando são da mesma coisa. Em \"photos\" e \"files\" desse item, os números das fotos e dos arquivos que são dele; o que não for de nenhum item (a foto de um momento, a lembrança do dia) fica de fora: o diário do dia já mostra.\n- Das fotos e dos arquivos você vê o que o celular disse deles e o texto lido (dos arquivos, o nome e o tipo) — nunca a foto nem o arquivo inteiro. Um documento, ou qualquer arquivo que ela vá querer achar de novo, tem sempre o item dele (em geral uma nota, com um título que diz o que é), mesmo quando ela o manda contando o dia. Não copie o conteúdo do arquivo pros itens.\n- keep_audio: true quando ela falou (não escreveu) e o som do que gravou é o que vale guardar, porque as palavras não dão conta dele — uma melodia que ela canta ou cantarola pra não esquecer, um som que quer mostrar. O áudio fica junto do que você criar ou mudar. Quando o texto basta, deixe de fora.\n- Se, pra responder, faltar algo que não está no contexto, peça pra procurar e deixe o resto vazio: \"search\" com as palavras a procurar e/ou \"period\" com o intervalo de dias (from e to, AAAA-MM-DD) quando a pergunta é sobre um tempo — o que foi guardado, feito ou vence nesses dias. Você recebe os resultados e responde em seguida.\n- reply: uma frase curta e calorosa, no idioma dela, dizendo o que ficou guardado ou respondendo a pergunta.\n- Escreva só os campos que usar: vazio, null, false ou [] ficam de fora. A resposta fica curta.\n\nResponda somente com um objeto JSON. Um exemplo do jeito (só o que foi usado):\n{\"reply\": \"...\", \"create\": [{\"kind\": \"task\", \"title\": \"...\", \"due\": \"AAAA-MM-DD\"}], \"update\": [{\"id\": 12, \"add_steps\": [\"...\"]}]}\nOs campos que existem:\n- reply\n- create: [{kind (task, note ou diary), title, body, summary, tags, entities [{name, type}], category, due, remind_at, alarm, repeat, check_in_at, steps, status, sensitive, related, photos [números], files [números]}]\n- update: [{id, status, steps_done, add_steps, title, append, body, summary, category, due, remind_at, alarm, repeat, check_in_at, entities, delete, photos [números], files [números]}]\n- categories: [{name, to}]\n- meds: [{id, name, strength, dose, amount, person, times, every_hours, days, start, end, notes, alarm, photos [números], taken, taken_at, taken_count, untaken_at, delete}]\n- search, period {from, to}, show, show_photos, show_meds, keep_audio",
     "times": [
         {
             "text": "2026-11-12",
@@ -504,7 +504,8 @@
                 "rungAt": null,
                 "occursFrom": null,
                 "doneTimes": "[]",
-                "alarm": 1
+                "alarm": 1,
+                "summary": ""
             },
             {
                 "id": 2,
@@ -529,7 +530,8 @@
                 "rungAt": null,
                 "occursFrom": null,
                 "doneTimes": "[]",
-                "alarm": 1
+                "alarm": 1,
+                "summary": ""
             },
             {
                 "id": 3,
@@ -554,13 +556,14 @@
                 "rungAt": null,
                 "occursFrom": null,
                 "doneTimes": "[]",
-                "alarm": 1
+                "alarm": 1,
+                "summary": ""
             },
             {
                 "id": 4,
                 "kind": "note",
                 "title": "Ideias pro aniversário da Ana",
-                "body": "Piquenique no parque, bolo de cenoura.",
+                "body": "Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.\n\nSe chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma semana de antes. Levar a toalha xadrez e a caixa de som.",
                 "status": null,
                 "steps": "[]",
                 "tags": "[]",
@@ -579,7 +582,8 @@
                 "rungAt": null,
                 "occursFrom": null,
                 "doneTimes": "[]",
-                "alarm": 1
+                "alarm": 1,
+                "summary": "Piquenique no parque, sábado de manhã\nBolo de cenoura\nSe chover: o salão do prédio (reservar com o síndico)"
             },
             {
                 "id": 5,
@@ -604,7 +608,8 @@
                 "rungAt": null,
                 "occursFrom": null,
                 "doneTimes": "[]",
-                "alarm": 1
+                "alarm": 1,
+                "summary": ""
             },
             {
                 "id": 6,
@@ -629,7 +634,8 @@
                 "rungAt": null,
                 "occursFrom": 1794229200000,
                 "doneTimes": "[]",
-                "alarm": 1
+                "alarm": 1,
+                "summary": ""
             },
             {
                 "id": 7,
@@ -654,7 +660,8 @@
                 "rungAt": null,
                 "occursFrom": null,
                 "doneTimes": "[]",
-                "alarm": 1
+                "alarm": 1,
+                "summary": ""
             },
             {
                 "id": 8,
@@ -679,7 +686,8 @@
                 "rungAt": null,
                 "occursFrom": null,
                 "doneTimes": "[]",
-                "alarm": 1
+                "alarm": 1,
+                "summary": ""
             }
         ],
         "meds": [
@@ -713,8 +721,8 @@
         "hits": [
             1
         ],
-        "text": "CATEGORIAS DAS TAREFAS: Trabalho, Casa\n\nREMÉDIOS:\nremédio#1 \"Amoxicilina\" · 500 mg · ½ comprimido · 250 mg · pra Cooper · 00:00, 08:00, 16:00 · de 8 em 8 h · desde 2026-11-09 · até 2026-11-16 · doses: 1 de 21 dadas · depois de comer · hoje: 00:00, 08:00 tomado, 16:00\n\nTAREFAS ABERTAS:\n#7 tarefa[todo] 2026-11-07 \"Mandar o relatório\" · categoria Trabalho · prazo 2026-11-09\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura\n#2 tarefa[todo] 2026-11-10 \"Pagar o IPVA\" · categoria Casa · lembrete 2026-11-11 17:30\n#6 tarefa[todo] 2026-11-08 \"Comida dos meninos\" · lembrete 2026-11-11 20:30 · repete day 10:00,14:00,20:00 · não feito 2026-11-10 20:00,2026-11-11 10:00,2026-11-11 14:00\n\nDIÁRIO DE HOJE:\n#5 diário 2026-11-11 \"Quarta-feira, 11 de novembro\" — Fui correr cedo no parque.\n\nÚLTIMAS COISAS GUARDADAS (a mais nova primeiro):\n#2 (acima)\n#4 nota 2026-11-09 \"Ideias pro aniversário da Ana\" — Piquenique no parque, bolo de cenoura.\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n#6 (acima)\n\nFOTOS QUE PODEM TER A VER:\nfoto#40 2026-11-10 14:30 — recibo do mercado · texto: Total R$ 32,00\n\nANTES DISSO (a última conversa, 2026-11-11 14:20):\nela: \"lembra de pagar o IPVA\"\nvocê: \"Lembrete pra pagar o IPVA às 17h.\"\ncriado: #2 (acima)\n\nAGORA: quarta-feira, 2026-11-11 14:30 (America/Sao_Paulo)\n\nOS ARQUIVOS QUE ELA MANDOU JUNTO (1):\n1. \"contrato.pdf\" · PDF · 225 KB · o que é: contrato de aluguel\n\nO QUE ELA ESCREVEU:\n\"preciso ligar pro Pedro sobre o contrato da torre\"\n",
-        "lookup": "CATEGORIAS DAS TAREFAS: Trabalho, Casa\n\nREMÉDIOS:\nremédio#1 \"Amoxicilina\" · 500 mg · ½ comprimido · 250 mg · pra Cooper · 00:00, 08:00, 16:00 · de 8 em 8 h · desde 2026-11-09 · até 2026-11-16 · doses: 1 de 21 dadas · depois de comer · hoje: 00:00, 08:00 tomado, 16:00\n\nTAREFAS ABERTAS:\n#7 tarefa[todo] 2026-11-07 \"Mandar o relatório\" · categoria Trabalho · prazo 2026-11-09\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura\n#2 tarefa[todo] 2026-11-10 \"Pagar o IPVA\" · categoria Casa · lembrete 2026-11-11 17:30\n#6 tarefa[todo] 2026-11-08 \"Comida dos meninos\" · lembrete 2026-11-11 20:30 · repete day 10:00,14:00,20:00 · não feito 2026-11-10 20:00,2026-11-11 10:00,2026-11-11 14:00\n\nDIÁRIO DE HOJE:\n#5 diário 2026-11-11 \"Quarta-feira, 11 de novembro\" — Fui correr cedo no parque.\n\nÚLTIMAS COISAS GUARDADAS (a mais nova primeiro):\n#2 (acima)\n#4 nota 2026-11-09 \"Ideias pro aniversário da Ana\" — Piquenique no parque, bolo de cenoura.\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n#6 (acima)\n\nRESULTADOS DA BUSCA (de 2026-11-10 a 2026-11-10):\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n\nAGORA: quarta-feira, 2026-11-11 14:30 (America/Sao_Paulo)\n\nO QUE ELA ESCREVEU:\n\"o que eu fiz ontem?\"\n"
+        "text": "CATEGORIAS DAS TAREFAS: Trabalho, Casa\n\nREMÉDIOS:\nremédio#1 \"Amoxicilina\" · 500 mg · ½ comprimido · 250 mg · pra Cooper · 00:00, 08:00, 16:00 · de 8 em 8 h · desde 2026-11-09 · até 2026-11-16 · doses: 1 de 21 dadas · depois de comer · hoje: 00:00, 08:00 tomado, 16:00\n\nTAREFAS ABERTAS:\n#7 tarefa[todo] 2026-11-07 \"Mandar o relatório\" · categoria Trabalho · prazo 2026-11-09\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura\n#2 tarefa[todo] 2026-11-10 \"Pagar o IPVA\" · categoria Casa · lembrete 2026-11-11 17:30\n#6 tarefa[todo] 2026-11-08 \"Comida dos meninos\" · lembrete 2026-11-11 20:30 · repete day 10:00,14:00,20:00 · não feito 2026-11-10 20:00,2026-11-11 10:00,2026-11-11 14:00\n\nDIÁRIO DE HOJE:\n#5 diário 2026-11-11 \"Quarta-feira, 11 de novembro\" — Fui correr cedo no parque.\n\nÚLTIMAS COISAS GUARDADAS (a mais nova primeiro):\n#2 (acima)\n#4 nota 2026-11-09 \"Ideias pro aniversário da Ana\" · em tópicos: Piquenique no parque, sábado de manhã | Bolo de cenoura | Se chover: o salão do prédio (reservar com o síndico) — Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.  Se chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma sem\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n#6 (acima)\n\nFOTOS QUE PODEM TER A VER:\nfoto#40 2026-11-10 14:30 — recibo do mercado · texto: Total R$ 32,00\n\nANTES DISSO (a última conversa, 2026-11-11 14:20):\nela: \"lembra de pagar o IPVA\"\nvocê: \"Lembrete pra pagar o IPVA às 17h.\"\ncriado: #2 (acima)\n\nAGORA: quarta-feira, 2026-11-11 14:30 (America/Sao_Paulo)\n\nOS ARQUIVOS QUE ELA MANDOU JUNTO (1):\n1. \"contrato.pdf\" · PDF · 225 KB · o que é: contrato de aluguel\n\nO QUE ELA ESCREVEU:\n\"preciso ligar pro Pedro sobre o contrato da torre\"\n",
+        "lookup": "CATEGORIAS DAS TAREFAS: Trabalho, Casa\n\nREMÉDIOS:\nremédio#1 \"Amoxicilina\" · 500 mg · ½ comprimido · 250 mg · pra Cooper · 00:00, 08:00, 16:00 · de 8 em 8 h · desde 2026-11-09 · até 2026-11-16 · doses: 1 de 21 dadas · depois de comer · hoje: 00:00, 08:00 tomado, 16:00\n\nTAREFAS ABERTAS:\n#7 tarefa[todo] 2026-11-07 \"Mandar o relatório\" · categoria Trabalho · prazo 2026-11-09\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura\n#2 tarefa[todo] 2026-11-10 \"Pagar o IPVA\" · categoria Casa · lembrete 2026-11-11 17:30\n#6 tarefa[todo] 2026-11-08 \"Comida dos meninos\" · lembrete 2026-11-11 20:30 · repete day 10:00,14:00,20:00 · não feito 2026-11-10 20:00,2026-11-11 10:00,2026-11-11 14:00\n\nDIÁRIO DE HOJE:\n#5 diário 2026-11-11 \"Quarta-feira, 11 de novembro\" — Fui correr cedo no parque.\n\nÚLTIMAS COISAS GUARDADAS (a mais nova primeiro):\n#2 (acima)\n#4 nota 2026-11-09 \"Ideias pro aniversário da Ana\" · em tópicos: Piquenique no parque, sábado de manhã | Bolo de cenoura | Se chover: o salão do prédio (reservar com o síndico) — Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.  Se chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma sem\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n#6 (acima)\n\nRESULTADOS DA BUSCA (de 2026-11-10 a 2026-11-10):\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n\nAGORA: quarta-feira, 2026-11-11 14:30 (America/Sao_Paulo)\n\nO QUE ELA ESCREVEU:\n\"o que eu fiz ontem?\"\n"
     },
     "answers": [
         {
@@ -822,7 +830,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 2,
@@ -847,7 +856,8 @@
                     "rungAt": 1794429000000,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 3,
@@ -872,7 +882,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 5,
@@ -897,7 +908,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 6,
@@ -922,7 +934,8 @@
                     "rungAt": null,
                     "occursFrom": 1794229200000,
                     "doneTimes": "[1794416400000]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 7,
@@ -947,7 +960,8 @@
                     "rungAt": null,
                     "occursFrom": 1794484800000,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 8,
@@ -972,7 +986,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 9,
@@ -997,7 +1012,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 10,
@@ -1022,7 +1038,8 @@
                     "rungAt": null,
                     "occursFrom": 1794420000000,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 }
             ],
             "meds": [
@@ -1197,7 +1214,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 2,
@@ -1222,7 +1240,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 3,
@@ -1247,13 +1266,14 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 4,
                     "kind": "note",
                     "title": "Ideias pro aniversário da Ana",
-                    "body": "Piquenique no parque, bolo de cenoura.",
+                    "body": "Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.\n\nSe chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma semana de antes. Levar a toalha xadrez e a caixa de som.",
                     "status": null,
                     "steps": "[]",
                     "tags": "[]",
@@ -1272,7 +1292,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": "Piquenique no parque, sábado de manhã\nBolo de cenoura\nSe chover: o salão do prédio (reservar com o síndico)"
                 },
                 {
                     "id": 5,
@@ -1297,7 +1318,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 6,
@@ -1322,7 +1344,8 @@
                     "rungAt": null,
                     "occursFrom": 1794229200000,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 7,
@@ -1347,7 +1370,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 },
                 {
                     "id": 8,
@@ -1372,7 +1396,8 @@
                     "rungAt": null,
                     "occursFrom": null,
                     "doneTimes": "[]",
-                    "alarm": 1
+                    "alarm": 1,
+                    "summary": ""
                 }
             ],
             "meds": [
@@ -1437,6 +1462,902 @@
             ],
             "touched": [],
             "medsChanged": true
+        },
+        {
+            "plan": "{\"reply\":\"ok\",\"create\":[{\"kind\":\"note\",\"title\":\"Viagem pra Floripa\",\"body\":\"Vamos de 3 a 7 de dezembro, ficando num hotel perto da praia da Joaquina. O carro a gente aluga no aeroporto, que sai mais barato que levar o nosso.\\n\\nPreciso ver se o hotel aceita cachorro, porque o Cooper vai junto, e comprar protetor solar e um guarda-sol novo antes.\",\"summary\":\"- Datas: 3 a 7 de dezembro\\n- Hotel: perto da praia da Joaquina\\n**Carro:** alugar no aeroporto\\n- datas: 3 a 7 de dezembro\\n3. Levar: protetor solar e guarda-sol\"},{\"kind\":\"note\",\"title\":\"Placa do carro\",\"body\":\"ABC1D23\",\"summary\":[\"Placa: ABC1D23\",\"Cor: prata\"]},{\"kind\":\"task\",\"title\":\"Reservar o hotel\",\"summary\":[\"a\",\"b\"]}],\"update\":[{\"id\":4,\"append\":\"A Ana prefere bolo de chocolate.\",\"summary\":[{\"assunto\":\"Festa\",\"pontos\":[\"piquenique no parque\",\"sábado de manhã\"]},{\"tema\":\"Bolo\",\"texto\":\"de chocolate\"},\"Se chover: o salão do prédio\"]},{\"id\":1,\"append\":\"Mais uma coisa.\",\"summary\":[\"a\",\"b\"]}]}",
+            "entries": [
+                {
+                    "id": 1,
+                    "kind": "task",
+                    "title": "Fechar contrato da torre de Campinas",
+                    "body": "Falta a assinatura do proprietário e a planta atualizada.\n\nMais uma coisa.",
+                    "status": "doing",
+                    "steps": "[{\"text\":\"pedir planta\",\"done\":true},{\"text\":\"assinatura\"}]",
+                    "tags": "[]",
+                    "dueAt": 1794591000000,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": 1794504600000,
+                    "sensitive": 0,
+                    "createdAt": 1794159000000,
+                    "updatedAt": 1794418200000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Trabalho",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 2,
+                    "kind": "task",
+                    "title": "Pagar o IPVA",
+                    "body": "",
+                    "status": "todo",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": 1794429000000,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794331800000,
+                    "updatedAt": 1794331800000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Casa",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 3,
+                    "kind": "note",
+                    "title": "Senha do wifi",
+                    "body": "girassol",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 1,
+                    "createdAt": 1793986200000,
+                    "updatedAt": 1793986200000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 4,
+                    "kind": "note",
+                    "title": "Ideias pro aniversário da Ana",
+                    "body": "Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.\n\nSe chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma semana de antes. Levar a toalha xadrez e a caixa de som.\n\nA Ana prefere bolo de chocolate.",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794245400000,
+                    "updatedAt": 1794418200000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": "Festa: piquenique no parque\nFesta: sábado de manhã\nBolo: de chocolate\nSe chover: o salão do prédio"
+                },
+                {
+                    "id": 5,
+                    "kind": "diary",
+                    "title": "Quarta-feira, 11 de novembro",
+                    "body": "Fui correr cedo no parque.",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794414600000,
+                    "updatedAt": 1794414600000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 6,
+                    "kind": "task",
+                    "title": "Comida dos meninos",
+                    "body": "",
+                    "status": "todo",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": 1794439800000,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794159000000,
+                    "updatedAt": 1794331800000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": "{\"every\":\"day\",\"time\":\"10:00\",\"times\":[\"10:00\",\"14:00\",\"20:00\"]}",
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": 1794229200000,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 7,
+                    "kind": "task",
+                    "title": "Mandar o relatório",
+                    "body": "",
+                    "status": "todo",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": 1794245400000,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794072600000,
+                    "updatedAt": 1794072600000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Trabalho",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 8,
+                    "kind": "task",
+                    "title": "Comprar ração",
+                    "body": "",
+                    "status": "done",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794245400000,
+                    "updatedAt": 1794414600000,
+                    "doneAt": 1794414600000,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Casa",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 9,
+                    "kind": "note",
+                    "title": "Viagem pra Floripa",
+                    "body": "Vamos de 3 a 7 de dezembro, ficando num hotel perto da praia da Joaquina. O carro a gente aluga no aeroporto, que sai mais barato que levar o nosso.\n\nPreciso ver se o hotel aceita cachorro, porque o Cooper vai junto, e comprar protetor solar e um guarda-sol novo antes.",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794418200000,
+                    "updatedAt": 1794418200000,
+                    "doneAt": null,
+                    "captureId": 99,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": "Datas: 3 a 7 de dezembro\nHotel: perto da praia da Joaquina\nCarro: alugar no aeroporto\nLevar: protetor solar e guarda-sol"
+                },
+                {
+                    "id": 10,
+                    "kind": "note",
+                    "title": "Placa do carro",
+                    "body": "ABC1D23",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794418200000,
+                    "updatedAt": 1794418200000,
+                    "doneAt": null,
+                    "captureId": 99,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": "Placa: ABC1D23\nCor: prata"
+                },
+                {
+                    "id": 11,
+                    "kind": "task",
+                    "title": "Reservar o hotel",
+                    "body": "",
+                    "status": "todo",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794418200000,
+                    "updatedAt": 1794418200000,
+                    "doneAt": null,
+                    "captureId": 99,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                }
+            ],
+            "meds": [
+                {
+                    "id": 1,
+                    "name": "Amoxicilina",
+                    "strength": "500 mg",
+                    "dose": "½ comprimido",
+                    "amount": "250 mg",
+                    "person": "Cooper",
+                    "times": "[\"08:00\",\"16:00\",\"00:00\"]",
+                    "everyHours": 8,
+                    "days": "[]",
+                    "startsAt": 1794223800000,
+                    "endsAt": 1794850200000,
+                    "notes": "depois de comer",
+                    "photoId": null,
+                    "captureId": null,
+                    "createdAt": 1794245400000,
+                    "updatedAt": 1794245400000,
+                    "alarm": 1
+                }
+            ],
+            "taken": [
+                {
+                    "medId": 1,
+                    "at": 1794394800000,
+                    "takenAt": 1794418140000
+                }
+            ],
+            "topics": [
+                {
+                    "id": 1,
+                    "name": "Pedro",
+                    "norm": "pedro",
+                    "type": "person"
+                }
+            ],
+            "ties": [
+                {
+                    "entryId": 1,
+                    "topicId": 1
+                }
+            ],
+            "links": [],
+            "progress": [],
+            "captures": [],
+            "outcomes": [
+                {
+                    "entryId": 9,
+                    "action": "created"
+                },
+                {
+                    "entryId": 10,
+                    "action": "created"
+                },
+                {
+                    "entryId": 11,
+                    "action": "created"
+                },
+                {
+                    "entryId": 4,
+                    "action": "updated"
+                },
+                {
+                    "entryId": 1,
+                    "action": "updated"
+                }
+            ],
+            "touched": [],
+            "medsChanged": false
+        },
+        {
+            "plan": "{\"reply\":\"ok\",\"update\":[{\"id\":4,\"append\":\"Mais uma coisa.\"},{\"id\":3,\"summary\":[\"Senha: girassol\"]}]}",
+            "entries": [
+                {
+                    "id": 1,
+                    "kind": "task",
+                    "title": "Fechar contrato da torre de Campinas",
+                    "body": "Falta a assinatura do proprietário e a planta atualizada.",
+                    "status": "doing",
+                    "steps": "[{\"text\":\"pedir planta\",\"done\":true},{\"text\":\"assinatura\"}]",
+                    "tags": "[]",
+                    "dueAt": 1794591000000,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": 1794504600000,
+                    "sensitive": 0,
+                    "createdAt": 1794159000000,
+                    "updatedAt": 1794331800000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Trabalho",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 2,
+                    "kind": "task",
+                    "title": "Pagar o IPVA",
+                    "body": "",
+                    "status": "todo",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": 1794429000000,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794331800000,
+                    "updatedAt": 1794331800000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Casa",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 3,
+                    "kind": "note",
+                    "title": "Senha do wifi",
+                    "body": "girassol",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 1,
+                    "createdAt": 1793986200000,
+                    "updatedAt": 1794418200000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": "Senha: girassol"
+                },
+                {
+                    "id": 4,
+                    "kind": "note",
+                    "title": "Ideias pro aniversário da Ana",
+                    "body": "Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.\n\nSe chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma semana de antes. Levar a toalha xadrez e a caixa de som.\n\nMais uma coisa.",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794245400000,
+                    "updatedAt": 1794418200000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": "Piquenique no parque, sábado de manhã\nBolo de cenoura\nSe chover: o salão do prédio (reservar com o síndico)"
+                },
+                {
+                    "id": 5,
+                    "kind": "diary",
+                    "title": "Quarta-feira, 11 de novembro",
+                    "body": "Fui correr cedo no parque.",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794414600000,
+                    "updatedAt": 1794414600000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 6,
+                    "kind": "task",
+                    "title": "Comida dos meninos",
+                    "body": "",
+                    "status": "todo",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": 1794439800000,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794159000000,
+                    "updatedAt": 1794331800000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": "{\"every\":\"day\",\"time\":\"10:00\",\"times\":[\"10:00\",\"14:00\",\"20:00\"]}",
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": 1794229200000,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 7,
+                    "kind": "task",
+                    "title": "Mandar o relatório",
+                    "body": "",
+                    "status": "todo",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": 1794245400000,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794072600000,
+                    "updatedAt": 1794072600000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Trabalho",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 8,
+                    "kind": "task",
+                    "title": "Comprar ração",
+                    "body": "",
+                    "status": "done",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794245400000,
+                    "updatedAt": 1794414600000,
+                    "doneAt": 1794414600000,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Casa",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                }
+            ],
+            "meds": [
+                {
+                    "id": 1,
+                    "name": "Amoxicilina",
+                    "strength": "500 mg",
+                    "dose": "½ comprimido",
+                    "amount": "250 mg",
+                    "person": "Cooper",
+                    "times": "[\"08:00\",\"16:00\",\"00:00\"]",
+                    "everyHours": 8,
+                    "days": "[]",
+                    "startsAt": 1794223800000,
+                    "endsAt": 1794850200000,
+                    "notes": "depois de comer",
+                    "photoId": null,
+                    "captureId": null,
+                    "createdAt": 1794245400000,
+                    "updatedAt": 1794245400000,
+                    "alarm": 1
+                }
+            ],
+            "taken": [
+                {
+                    "medId": 1,
+                    "at": 1794394800000,
+                    "takenAt": 1794418140000
+                }
+            ],
+            "topics": [
+                {
+                    "id": 1,
+                    "name": "Pedro",
+                    "norm": "pedro",
+                    "type": "person"
+                }
+            ],
+            "ties": [
+                {
+                    "entryId": 1,
+                    "topicId": 1
+                }
+            ],
+            "links": [],
+            "progress": [],
+            "captures": [],
+            "outcomes": [
+                {
+                    "entryId": 4,
+                    "action": "updated"
+                },
+                {
+                    "entryId": 3,
+                    "action": "updated"
+                }
+            ],
+            "touched": [],
+            "medsChanged": false
+        },
+        {
+            "plan": "{\"reply\":\"ok\",\"update\":[{\"id\":4,\"body\":\"Desisti do piquenique, vamos só jantar fora.\"}]}",
+            "entries": [
+                {
+                    "id": 1,
+                    "kind": "task",
+                    "title": "Fechar contrato da torre de Campinas",
+                    "body": "Falta a assinatura do proprietário e a planta atualizada.",
+                    "status": "doing",
+                    "steps": "[{\"text\":\"pedir planta\",\"done\":true},{\"text\":\"assinatura\"}]",
+                    "tags": "[]",
+                    "dueAt": 1794591000000,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": 1794504600000,
+                    "sensitive": 0,
+                    "createdAt": 1794159000000,
+                    "updatedAt": 1794331800000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Trabalho",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 2,
+                    "kind": "task",
+                    "title": "Pagar o IPVA",
+                    "body": "",
+                    "status": "todo",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": 1794429000000,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794331800000,
+                    "updatedAt": 1794331800000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Casa",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 3,
+                    "kind": "note",
+                    "title": "Senha do wifi",
+                    "body": "girassol",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 1,
+                    "createdAt": 1793986200000,
+                    "updatedAt": 1793986200000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 4,
+                    "kind": "note",
+                    "title": "Ideias pro aniversário da Ana",
+                    "body": "Desisti do piquenique, vamos só jantar fora.",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794245400000,
+                    "updatedAt": 1794418200000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 5,
+                    "kind": "diary",
+                    "title": "Quarta-feira, 11 de novembro",
+                    "body": "Fui correr cedo no parque.",
+                    "status": null,
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794414600000,
+                    "updatedAt": 1794414600000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 6,
+                    "kind": "task",
+                    "title": "Comida dos meninos",
+                    "body": "",
+                    "status": "todo",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": 1794439800000,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794159000000,
+                    "updatedAt": 1794331800000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": "{\"every\":\"day\",\"time\":\"10:00\",\"times\":[\"10:00\",\"14:00\",\"20:00\"]}",
+                    "position": null,
+                    "category": null,
+                    "rungAt": null,
+                    "occursFrom": 1794229200000,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 7,
+                    "kind": "task",
+                    "title": "Mandar o relatório",
+                    "body": "",
+                    "status": "todo",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": 1794245400000,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794072600000,
+                    "updatedAt": 1794072600000,
+                    "doneAt": null,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Trabalho",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                },
+                {
+                    "id": 8,
+                    "kind": "task",
+                    "title": "Comprar ração",
+                    "body": "",
+                    "status": "done",
+                    "steps": "[]",
+                    "tags": "[]",
+                    "dueAt": null,
+                    "dueHasTime": 0,
+                    "remindAt": null,
+                    "checkInAt": null,
+                    "sensitive": 0,
+                    "createdAt": 1794245400000,
+                    "updatedAt": 1794414600000,
+                    "doneAt": 1794414600000,
+                    "captureId": null,
+                    "repeat": null,
+                    "position": null,
+                    "category": "Casa",
+                    "rungAt": null,
+                    "occursFrom": null,
+                    "doneTimes": "[]",
+                    "alarm": 1,
+                    "summary": ""
+                }
+            ],
+            "meds": [
+                {
+                    "id": 1,
+                    "name": "Amoxicilina",
+                    "strength": "500 mg",
+                    "dose": "½ comprimido",
+                    "amount": "250 mg",
+                    "person": "Cooper",
+                    "times": "[\"08:00\",\"16:00\",\"00:00\"]",
+                    "everyHours": 8,
+                    "days": "[]",
+                    "startsAt": 1794223800000,
+                    "endsAt": 1794850200000,
+                    "notes": "depois de comer",
+                    "photoId": null,
+                    "captureId": null,
+                    "createdAt": 1794245400000,
+                    "updatedAt": 1794245400000,
+                    "alarm": 1
+                }
+            ],
+            "taken": [
+                {
+                    "medId": 1,
+                    "at": 1794394800000,
+                    "takenAt": 1794418140000
+                }
+            ],
+            "topics": [
+                {
+                    "id": 1,
+                    "name": "Pedro",
+                    "norm": "pedro",
+                    "type": "person"
+                }
+            ],
+            "ties": [
+                {
+                    "entryId": 1,
+                    "topicId": 1
+                }
+            ],
+            "links": [],
+            "progress": [],
+            "captures": [],
+            "outcomes": [
+                {
+                    "entryId": 4,
+                    "action": "updated"
+                }
+            ],
+            "touched": [],
+            "medsChanged": false
         }
     ],
     "recall": [
