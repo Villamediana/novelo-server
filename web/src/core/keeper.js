@@ -6,6 +6,7 @@ import * as D from './doses.js';
 import * as Brain from './brain.js';
 import { merge as diaryMerge, bounds } from './diary.js';
 import { Categories, Steps, Tags, Words, joined, kindKey, kindOf, statusKey, statusOf, isBlank } from './words.js';
+import * as Summary from './summary.js';
 
 const STOP = new Set(['none', 'never', 'no', 'nunca', 'nenhum', '']);
 const NO_END = new Set(['none', 'never', 'nunca', 'null', '', 'contínuo', 'continuo']);
@@ -94,6 +95,8 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
         doneAt: status === 'done' ? now : null,
         captureId,
         category: kind === 'task' ? category(item.category) : null,
+        // A note the model saw worth it: its points too, "Em tópicos" (a task, the diary: never).
+        summary: kind === 'note' ? Summary.keep(item.summary) : '',
       };
       const id = data.insertEntry(entry);
       tieTopics(data, id, item.entities);
@@ -126,6 +129,14 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
       }
       if (!isBlank(change.body)) e = { ...e, body: change.body.trim() };
       if (!isBlank(change.append)) e = { ...e, body: kindOf(e) === 'diary' ? diaryMerge(e.body, change.append) : joined(e.body, change.append) };
+      // A note's points, whole again; its text written again without them: the old ones went with it.
+      // Only joined to (news) without them: the ones it had still hold.
+      if (kindOf(e) === 'note') {
+        const points = Summary.keep(change.summary);
+        const rewritten = !isBlank(change.body) && e.body !== old.body;
+        if (points) e = { ...e, summary: points };
+        else if (rewritten) e = { ...e, summary: '' };
+      }
       const due = Brain.time(change.due, z, base);
       if (due) e = { ...e, dueAt: due[0], dueHasTime: due[1] ? 1 : 0 };
       const r = ahead(change.remindAt);

@@ -107,7 +107,7 @@ await phonePut('entries', [
   { id: 1, kind: 'task', title: 'Fechar contrato da torre de Campinas', body: 'Falta a assinatura do proprietário.', status: 'doing', steps: '[{"text":"pedir planta","done":true},{"text":"revisar cláusulas","done":true},{"text":"assinatura"}]', dueAt: now + 2 * day, createdAt: now - 3 * day, updatedAt: now - day, category: 'Trabalho' },
   { id: 2, kind: 'task', title: 'Pagar o IPVA', status: 'todo', remindAt: at(23, 30), createdAt: now - day, updatedAt: now - day, category: 'Casa' },
   { id: 3, kind: 'note', title: 'Senha do wifi de casa', body: 'girassol-2026', sensitive: 1, createdAt: now - 5 * day, updatedAt: now - 5 * day },
-  { id: 4, kind: 'note', title: 'Ideias pro aniversário da Ana', body: 'Um piquenique no parque, bolo de cenoura, chamar os primos.', createdAt: now - 2 * day, updatedAt: now - 2 * day },
+  { id: 4, kind: 'note', title: 'Ideias pro aniversário da Ana', body: 'Um piquenique no parque, bolo de cenoura, chamar os primos.\n\nSe chover, o salão do prédio: reservar com o síndico uma semana antes.', summary: 'Local: piquenique no parque; se chover, o salão do prédio\nBolo de cenoura\nConvidados: os primos', createdAt: now - 2 * day, updatedAt: now - 2 * day },
   { id: 5, kind: 'diary', title: 'Um dia bom', body: 'Fui correr cedo no parque e depois trabalhei de casa.\n\nÀ noite vi um filme com a Ana.', createdAt: now - day, updatedAt: now - day },
 ]);
 await phonePut('meds', [{ id: 1, name: 'Amoxicilina', dose: '1 comprimido', strength: '500 mg', times: '["08:00","16:00","23:59"]', startsAt: now - 2 * day, endsAt: now + 5 * day, createdAt: now - 2 * day, updatedAt: now - 2 * day, person: 'Cooper' }]);
@@ -156,6 +156,14 @@ try {
   await page.waitForSelector('text=Ideias pro aniversário da Ana');
   assert.equal(await page.locator('text=girassol-2026').count(), 0, 'a sensitive note is hidden');
   await shot(page, '06-notes');
+  // A long note: its points ("Em tópicos") above its text.
+  await page.click('text=Ideias pro aniversário da Ana');
+  await page.waitForSelector('.panel .points');
+  assert.equal(await page.locator('.panel .points li').count(), 3, 'its three points');
+  assert.equal(await page.locator('.panel .points strong').first().textContent(), 'Local:');
+  await shot(page, '06b-note-points');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.panel', { state: 'detached' });
   await page.click('button.nav:has-text("Diário")');
   await page.waitForSelector('text=Um dia bom');
   await shot(page, '07-diary');
