@@ -505,7 +505,8 @@
                 "occursFrom": null,
                 "doneTimes": "[]",
                 "alarm": 1,
-                "summary": ""
+                "summary": "",
+                "skippedTimes": "[]"
             },
             {
                 "id": 2,
@@ -531,7 +532,8 @@
                 "occursFrom": null,
                 "doneTimes": "[]",
                 "alarm": 1,
-                "summary": ""
+                "summary": "",
+                "skippedTimes": "[]"
             },
             {
                 "id": 3,
@@ -557,7 +559,8 @@
                 "occursFrom": null,
                 "doneTimes": "[]",
                 "alarm": 1,
-                "summary": ""
+                "summary": "",
+                "skippedTimes": "[]"
             },
             {
                 "id": 4,
@@ -583,7 +586,8 @@
                 "occursFrom": null,
                 "doneTimes": "[]",
                 "alarm": 1,
-                "summary": "Piquenique no parque, sábado de manhã\nBolo de cenoura\nSe chover: o salão do prédio (reservar com o síndico)"
+                "summary": "Piquenique no parque, sábado de manhã\nBolo de cenoura\nSe chover: o salão do prédio (reservar com o síndico)",
+                "skippedTimes": "[]"
             },
             {
                 "id": 5,
@@ -609,7 +613,8 @@
                 "occursFrom": null,
                 "doneTimes": "[]",
                 "alarm": 1,
-                "summary": ""
+                "summary": "",
+                "skippedTimes": "[]"
             },
             {
                 "id": 6,
@@ -635,7 +640,8 @@
                 "occursFrom": 1794229200000,
                 "doneTimes": "[]",
                 "alarm": 1,
-                "summary": ""
+                "summary": "",
+                "skippedTimes": "[1794351600000]"
             },
             {
                 "id": 7,
@@ -661,7 +667,8 @@
                 "occursFrom": null,
                 "doneTimes": "[]",
                 "alarm": 1,
-                "summary": ""
+                "summary": "",
+                "skippedTimes": "[]"
             },
             {
                 "id": 8,
@@ -687,7 +694,8 @@
                 "occursFrom": null,
                 "doneTimes": "[]",
                 "alarm": 1,
-                "summary": ""
+                "summary": "",
+                "skippedTimes": "[]"
             }
         ],
         "meds": [
@@ -721,8 +729,8 @@
         "hits": [
             1
         ],
-        "text": "CATEGORIAS DAS TAREFAS: Trabalho, Casa\n\nREMÉDIOS:\nremédio#1 \"Amoxicilina\" · 500 mg · ½ comprimido · 250 mg · pra Cooper · 00:00, 08:00, 16:00 · de 8 em 8 h · desde 2026-11-09 · até 2026-11-16 · doses: 1 de 21 dadas · depois de comer · hoje: 00:00, 08:00 tomado, 16:00\n\nTAREFAS ABERTAS:\n#7 tarefa[todo] 2026-11-07 \"Mandar o relatório\" · categoria Trabalho · prazo 2026-11-09\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura\n#2 tarefa[todo] 2026-11-10 \"Pagar o IPVA\" · categoria Casa · lembrete 2026-11-11 17:30\n#6 tarefa[todo] 2026-11-08 \"Comida dos meninos\" · lembrete 2026-11-11 20:30 · repete day 10:00,14:00,20:00 · não feito 2026-11-10 20:00,2026-11-11 10:00,2026-11-11 14:00\n\nDIÁRIO DE HOJE:\n#5 diário 2026-11-11 \"Quarta-feira, 11 de novembro\" — Fui correr cedo no parque.\n\nÚLTIMAS COISAS GUARDADAS (a mais nova primeiro):\n#2 (acima)\n#4 nota 2026-11-09 \"Ideias pro aniversário da Ana\" · em tópicos: Piquenique no parque, sábado de manhã | Bolo de cenoura | Se chover: o salão do prédio (reservar com o síndico) — Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.  Se chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma sem\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n#6 (acima)\n\nFOTOS QUE PODEM TER A VER:\nfoto#40 2026-11-10 14:30 — recibo do mercado · texto: Total R$ 32,00\n\nANTES DISSO (a última conversa, 2026-11-11 14:20):\nela: \"lembra de pagar o IPVA\"\nvocê: \"Lembrete pra pagar o IPVA às 17h.\"\ncriado: #2 (acima)\n\nAGORA: quarta-feira, 2026-11-11 14:30 (America/Sao_Paulo)\n\nOS ARQUIVOS QUE ELA MANDOU JUNTO (1):\n1. \"contrato.pdf\" · PDF · 225 KB · o que é: contrato de aluguel\n\nO QUE ELA ESCREVEU:\n\"preciso ligar pro Pedro sobre o contrato da torre\"\n",
-        "lookup": "CATEGORIAS DAS TAREFAS: Trabalho, Casa\n\nREMÉDIOS:\nremédio#1 \"Amoxicilina\" · 500 mg · ½ comprimido · 250 mg · pra Cooper · 00:00, 08:00, 16:00 · de 8 em 8 h · desde 2026-11-09 · até 2026-11-16 · doses: 1 de 21 dadas · depois de comer · hoje: 00:00, 08:00 tomado, 16:00\n\nTAREFAS ABERTAS:\n#7 tarefa[todo] 2026-11-07 \"Mandar o relatório\" · categoria Trabalho · prazo 2026-11-09\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura\n#2 tarefa[todo] 2026-11-10 \"Pagar o IPVA\" · categoria Casa · lembrete 2026-11-11 17:30\n#6 tarefa[todo] 2026-11-08 \"Comida dos meninos\" · lembrete 2026-11-11 20:30 · repete day 10:00,14:00,20:00 · não feito 2026-11-10 20:00,2026-11-11 10:00,2026-11-11 14:00\n\nDIÁRIO DE HOJE:\n#5 diário 2026-11-11 \"Quarta-feira, 11 de novembro\" — Fui correr cedo no parque.\n\nÚLTIMAS COISAS GUARDADAS (a mais nova primeiro):\n#2 (acima)\n#4 nota 2026-11-09 \"Ideias pro aniversário da Ana\" · em tópicos: Piquenique no parque, sábado de manhã | Bolo de cenoura | Se chover: o salão do prédio (reservar com o síndico) — Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.  Se chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma sem\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n#6 (acima)\n\nRESULTADOS DA BUSCA (de 2026-11-10 a 2026-11-10):\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n\nAGORA: quarta-feira, 2026-11-11 14:30 (America/Sao_Paulo)\n\nO QUE ELA ESCREVEU:\n\"o que eu fiz ontem?\"\n"
+        "text": "CATEGORIAS DAS TAREFAS: Trabalho, Casa\n\nREMÉDIOS:\nremédio#1 \"Amoxicilina\" · 500 mg · ½ comprimido · 250 mg · pra Cooper · 00:00, 08:00, 16:00 · de 8 em 8 h · desde 2026-11-09 · até 2026-11-16 · doses: 1 de 21 dadas · depois de comer · hoje: 00:00, 08:00 tomado, 16:00\n\nTAREFAS ABERTAS:\n#7 tarefa[todo] 2026-11-07 \"Mandar o relatório\" · categoria Trabalho · prazo 2026-11-09\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura\n#2 tarefa[todo] 2026-11-10 \"Pagar o IPVA\" · categoria Casa · lembrete 2026-11-11 17:30\n#6 tarefa[todo] 2026-11-08 \"Comida dos meninos\" · lembrete 2026-11-11 20:30 · repete day 10:00,14:00,20:00 · não feito 2026-11-10 14:00,2026-11-11 10:00,2026-11-11 14:00\n\nDIÁRIO DE HOJE:\n#5 diário 2026-11-11 \"Quarta-feira, 11 de novembro\" — Fui correr cedo no parque.\n\nÚLTIMAS COISAS GUARDADAS (a mais nova primeiro):\n#2 (acima)\n#4 nota 2026-11-09 \"Ideias pro aniversário da Ana\" · em tópicos: Piquenique no parque, sábado de manhã | Bolo de cenoura | Se chover: o salão do prédio (reservar com o síndico) — Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.  Se chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma sem\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n#6 (acima)\n\nFOTOS QUE PODEM TER A VER:\nfoto#40 2026-11-10 14:30 — recibo do mercado · texto: Total R$ 32,00\n\nANTES DISSO (a última conversa, 2026-11-11 14:20):\nela: \"lembra de pagar o IPVA\"\nvocê: \"Lembrete pra pagar o IPVA às 17h.\"\ncriado: #2 (acima)\n\nAGORA: quarta-feira, 2026-11-11 14:30 (America/Sao_Paulo)\n\nOS ARQUIVOS QUE ELA MANDOU JUNTO (1):\n1. \"contrato.pdf\" · PDF · 225 KB · o que é: contrato de aluguel\n\nO QUE ELA ESCREVEU:\n\"preciso ligar pro Pedro sobre o contrato da torre\"\n",
+        "lookup": "CATEGORIAS DAS TAREFAS: Trabalho, Casa\n\nREMÉDIOS:\nremédio#1 \"Amoxicilina\" · 500 mg · ½ comprimido · 250 mg · pra Cooper · 00:00, 08:00, 16:00 · de 8 em 8 h · desde 2026-11-09 · até 2026-11-16 · doses: 1 de 21 dadas · depois de comer · hoje: 00:00, 08:00 tomado, 16:00\n\nTAREFAS ABERTAS:\n#7 tarefa[todo] 2026-11-07 \"Mandar o relatório\" · categoria Trabalho · prazo 2026-11-09\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura\n#2 tarefa[todo] 2026-11-10 \"Pagar o IPVA\" · categoria Casa · lembrete 2026-11-11 17:30\n#6 tarefa[todo] 2026-11-08 \"Comida dos meninos\" · lembrete 2026-11-11 20:30 · repete day 10:00,14:00,20:00 · não feito 2026-11-10 14:00,2026-11-11 10:00,2026-11-11 14:00\n\nDIÁRIO DE HOJE:\n#5 diário 2026-11-11 \"Quarta-feira, 11 de novembro\" — Fui correr cedo no parque.\n\nÚLTIMAS COISAS GUARDADAS (a mais nova primeiro):\n#2 (acima)\n#4 nota 2026-11-09 \"Ideias pro aniversário da Ana\" · em tópicos: Piquenique no parque, sábado de manhã | Bolo de cenoura | Se chover: o salão do prédio (reservar com o síndico) — Piquenique no parque, bolo de cenoura. Pensei em fazer no sábado de manhã, antes de esquentar, e chamar os amigos da escola dela.  Se chover, a gente faz no salão do prédio, que precisa reservar com o síndico com uma sem\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n#6 (acima)\n\nRESULTADOS DA BUSCA (de 2026-11-10 a 2026-11-10):\n#1 tarefa[doing] 2026-11-08 \"Fechar contrato da torre de Campinas\" · categoria Trabalho · prazo 2026-11-13 · etapas: [x] pedir planta [ ] assinatura — Falta a assinatura do proprietário e a planta atualizada.\n\nAGORA: quarta-feira, 2026-11-11 14:30 (America/Sao_Paulo)\n\nO QUE ELA ESCREVEU:\n\"o que eu fiz ontem?\"\n"
     },
     "answers": [
         {
@@ -831,7 +839,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 2,
@@ -857,7 +866,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 3,
@@ -883,7 +893,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 5,
@@ -909,7 +920,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 6,
@@ -935,7 +947,8 @@
                     "occursFrom": 1794229200000,
                     "doneTimes": "[1794416400000]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[1794351600000]"
                 },
                 {
                     "id": 7,
@@ -961,7 +974,8 @@
                     "occursFrom": 1794484800000,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 8,
@@ -987,7 +1001,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 9,
@@ -1013,7 +1028,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 10,
@@ -1039,7 +1055,8 @@
                     "occursFrom": 1794420000000,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 }
             ],
             "meds": [
@@ -1215,7 +1232,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 2,
@@ -1241,7 +1259,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 3,
@@ -1267,7 +1286,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 4,
@@ -1293,7 +1313,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": "Piquenique no parque, sábado de manhã\nBolo de cenoura\nSe chover: o salão do prédio (reservar com o síndico)"
+                    "summary": "Piquenique no parque, sábado de manhã\nBolo de cenoura\nSe chover: o salão do prédio (reservar com o síndico)",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 5,
@@ -1319,7 +1340,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 6,
@@ -1345,7 +1367,8 @@
                     "occursFrom": 1794229200000,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[1794351600000]"
                 },
                 {
                     "id": 7,
@@ -1371,7 +1394,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 8,
@@ -1397,7 +1421,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 }
             ],
             "meds": [
@@ -1490,7 +1515,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 2,
@@ -1516,7 +1542,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 3,
@@ -1542,7 +1569,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 4,
@@ -1568,7 +1596,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": "Festa: piquenique no parque\nFesta: sábado de manhã\nBolo: de chocolate\nSe chover: o salão do prédio"
+                    "summary": "Festa: piquenique no parque\nFesta: sábado de manhã\nBolo: de chocolate\nSe chover: o salão do prédio",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 5,
@@ -1594,7 +1623,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 6,
@@ -1620,7 +1650,8 @@
                     "occursFrom": 1794229200000,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[1794351600000]"
                 },
                 {
                     "id": 7,
@@ -1646,7 +1677,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 8,
@@ -1672,7 +1704,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 9,
@@ -1698,7 +1731,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": "Datas: 3 a 7 de dezembro\nHotel: perto da praia da Joaquina\nCarro: alugar no aeroporto\nLevar: protetor solar e guarda-sol"
+                    "summary": "Datas: 3 a 7 de dezembro\nHotel: perto da praia da Joaquina\nCarro: alugar no aeroporto\nLevar: protetor solar e guarda-sol",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 10,
@@ -1724,7 +1758,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": "Placa: ABC1D23\nCor: prata"
+                    "summary": "Placa: ABC1D23\nCor: prata",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 11,
@@ -1750,7 +1785,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 }
             ],
             "meds": [
@@ -1850,7 +1886,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 2,
@@ -1876,7 +1913,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 3,
@@ -1902,7 +1940,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": "Senha: girassol"
+                    "summary": "Senha: girassol",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 4,
@@ -1928,7 +1967,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": "Piquenique no parque, sábado de manhã\nBolo de cenoura\nSe chover: o salão do prédio (reservar com o síndico)"
+                    "summary": "Piquenique no parque, sábado de manhã\nBolo de cenoura\nSe chover: o salão do prédio (reservar com o síndico)",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 5,
@@ -1954,7 +1994,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 6,
@@ -1980,7 +2021,8 @@
                     "occursFrom": 1794229200000,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[1794351600000]"
                 },
                 {
                     "id": 7,
@@ -2006,7 +2048,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 8,
@@ -2032,7 +2075,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 }
             ],
             "meds": [
@@ -2120,7 +2164,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 2,
@@ -2146,7 +2191,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 3,
@@ -2172,7 +2218,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 4,
@@ -2198,7 +2245,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 5,
@@ -2224,7 +2272,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 6,
@@ -2250,7 +2299,8 @@
                     "occursFrom": 1794229200000,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[1794351600000]"
                 },
                 {
                     "id": 7,
@@ -2276,7 +2326,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 },
                 {
                     "id": 8,
@@ -2302,7 +2353,8 @@
                     "occursFrom": null,
                     "doneTimes": "[]",
                     "alarm": 1,
-                    "summary": ""
+                    "summary": "",
+                    "skippedTimes": "[]"
                 }
             ],
             "meds": [
@@ -2415,7 +2467,6 @@
                     "6@1794265200000",
                     "6@1794315600000",
                     "6@1794330000000",
-                    "6@1794351600000",
                     "6@1794402000000"
                 ]
             },
@@ -2444,5 +2495,229 @@
                 ]
             }
         ]
-    }
+    },
+    "skips": [
+        {
+            "name": "skip",
+            "row": {
+                "id": 6,
+                "kind": "task",
+                "title": "Comida dos meninos",
+                "body": "",
+                "status": "todo",
+                "steps": "[]",
+                "tags": "[]",
+                "dueAt": null,
+                "dueHasTime": 0,
+                "remindAt": 1794438000000,
+                "checkInAt": null,
+                "sensitive": 0,
+                "createdAt": 1794159000000,
+                "updatedAt": 1794418200000,
+                "doneAt": null,
+                "captureId": null,
+                "repeat": "{\"every\":\"day\",\"time\":\"10:00\",\"times\":[\"10:00\",\"14:00\",\"20:00\"]}",
+                "position": null,
+                "category": null,
+                "rungAt": null,
+                "occursFrom": 1794229200000,
+                "doneTimes": "[]",
+                "alarm": 1,
+                "summary": "",
+                "skippedTimes": "[1794351600000,1794416400000]"
+            },
+            "times": [
+                [
+                    1794229200000,
+                    false
+                ],
+                [
+                    1794243600000,
+                    false
+                ],
+                [
+                    1794265200000,
+                    false
+                ],
+                [
+                    1794315600000,
+                    false
+                ],
+                [
+                    1794330000000,
+                    false
+                ],
+                [
+                    1794402000000,
+                    false
+                ],
+                [
+                    1794438000000,
+                    false
+                ],
+                [
+                    1794488400000,
+                    false
+                ],
+                [
+                    1794502800000,
+                    false
+                ]
+            ],
+            "current": 1794402000000,
+            "nextRing": 1794438000000
+        },
+        {
+            "name": "back",
+            "row": {
+                "id": 6,
+                "kind": "task",
+                "title": "Comida dos meninos",
+                "body": "",
+                "status": "todo",
+                "steps": "[]",
+                "tags": "[]",
+                "dueAt": null,
+                "dueHasTime": 0,
+                "remindAt": 1794438000000,
+                "checkInAt": null,
+                "sensitive": 0,
+                "createdAt": 1794159000000,
+                "updatedAt": 1794418200000,
+                "doneAt": null,
+                "captureId": null,
+                "repeat": "{\"every\":\"day\",\"time\":\"10:00\",\"times\":[\"10:00\",\"14:00\",\"20:00\"]}",
+                "position": null,
+                "category": null,
+                "rungAt": null,
+                "occursFrom": 1794229200000,
+                "doneTimes": "[]",
+                "alarm": 1,
+                "summary": "",
+                "skippedTimes": "[1794351600000]"
+            },
+            "times": [
+                [
+                    1794229200000,
+                    false
+                ],
+                [
+                    1794243600000,
+                    false
+                ],
+                [
+                    1794265200000,
+                    false
+                ],
+                [
+                    1794315600000,
+                    false
+                ],
+                [
+                    1794330000000,
+                    false
+                ],
+                [
+                    1794402000000,
+                    false
+                ],
+                [
+                    1794416400000,
+                    false
+                ],
+                [
+                    1794438000000,
+                    false
+                ],
+                [
+                    1794488400000,
+                    false
+                ],
+                [
+                    1794502800000,
+                    false
+                ]
+            ],
+            "current": 1794416400000,
+            "nextRing": 1794438000000
+        },
+        {
+            "name": "done",
+            "row": {
+                "id": 6,
+                "kind": "task",
+                "title": "Comida dos meninos",
+                "body": "",
+                "status": "todo",
+                "steps": "[]",
+                "tags": "[]",
+                "dueAt": null,
+                "dueHasTime": 0,
+                "remindAt": 1794438000000,
+                "checkInAt": null,
+                "sensitive": 0,
+                "createdAt": 1794159000000,
+                "updatedAt": 1794418200000,
+                "doneAt": null,
+                "captureId": null,
+                "repeat": "{\"every\":\"day\",\"time\":\"10:00\",\"times\":[\"10:00\",\"14:00\",\"20:00\"]}",
+                "position": null,
+                "category": null,
+                "rungAt": null,
+                "occursFrom": 1794229200000,
+                "doneTimes": "[1794351600000]",
+                "alarm": 1,
+                "summary": "",
+                "skippedTimes": "[]"
+            },
+            "times": [
+                [
+                    1794229200000,
+                    false
+                ],
+                [
+                    1794243600000,
+                    false
+                ],
+                [
+                    1794265200000,
+                    false
+                ],
+                [
+                    1794315600000,
+                    false
+                ],
+                [
+                    1794330000000,
+                    false
+                ],
+                [
+                    1794351600000,
+                    true
+                ],
+                [
+                    1794402000000,
+                    false
+                ],
+                [
+                    1794416400000,
+                    false
+                ],
+                [
+                    1794438000000,
+                    false
+                ],
+                [
+                    1794488400000,
+                    false
+                ],
+                [
+                    1794502800000,
+                    false
+                ]
+            ],
+            "current": 1794416400000,
+            "nextRing": 1794438000000
+        }
+    ]
 }
