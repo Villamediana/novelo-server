@@ -152,18 +152,34 @@ export function writeDone(times) {
   return JSON.stringify([...new Set(times)].sort((a, b) => a - b));
 }
 
+/** Its times let go by hand ("Pular", app 1.81): as if they weren't there — not done, not late, never rung. */
+export function skippedOf(e) {
+  try {
+    const v = JSON.parse(e.skippedTimes ?? '[]');
+    return new Set(Array.isArray(v) ? v.filter(Number.isFinite) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Its times behind it: done, or let go. */
+export function behind(e) {
+  return new Set([...doneOf(e), ...skippedOf(e)]);
+}
+
 function startOf(e) {
   return e.occursFrom ?? e.remindAt ?? null;
 }
 
-/** Its times from where they count up to [until] (not included), each [time, done]. */
+/** Its times from where they count up to [until] (not included), each [time, done] — the ones let go aren't there. */
 export function timesOf(e, until, zone) {
   if (!repeats(e)) return [];
   const r = read(e.repeat);
   const s = startOf(e);
   if (s === null) return [];
   const done = doneOf(e);
-  return between(r, s, until, zone).map((t) => [t, done.has(t)]);
+  const skipped = skippedOf(e);
+  return between(r, s, until, zone).filter((t) => !skipped.has(t)).map((t) => [t, done.has(t)]);
 }
 
 export function come(e, now, zone) {
@@ -178,7 +194,7 @@ export function current(e, now, zone) {
   const r = read(e.repeat);
   const s = startOf(e);
   if (!r || s === null) return null;
-  const done = doneOf(e);
+  const done = behind(e);
   let t = next(r, Math.max(now, s - 1), zone);
   let n = 0;
   while (t !== null && done.has(t) && n++ < MAX_TIMES) t = next(r, t, zone);
@@ -188,7 +204,7 @@ export function current(e, now, zone) {
 export function nextRing(e, after, zone) {
   const r = read(e.repeat);
   if (!r) return null;
-  const done = kindOf(e) === 'task' ? doneOf(e) : new Set();
+  const done = kindOf(e) === 'task' ? behind(e) : new Set();
   let t = next(r, after, zone);
   let n = 0;
   while (t !== null && done.has(t) && n++ < MAX_TIMES) t = next(r, t, zone);
@@ -202,15 +218,39 @@ export function isTime(e, at, zone) {
 
 /** One of its times ticked ([done]) or not any more: open, its reminder on the next not done. */
 export function tick(e, at, done, now, zone) {
-  const r = read(e.repeat);
-  if (!r) return e;
+  if (!read(e.repeat)) return e;
   const times = doneOf(e);
   if (done) times.add(at);
   else times.delete(at);
+  // Done is done: a time let go and then done after all is just done.
+  const skipped = skippedOf(e);
+  if (done) skipped.delete(at);
+  let after = settle(e, at, times, skipped, now, zone);
+  if (done) after = { ...after, checkInAt: null };
+  if (done) after = { ...after, steps: Steps.write(Steps.read(e.steps).map((s) => ({ ...s, done: false }))) };
+  return after;
+}
+
+/** One of its times let go by hand ([skip]: "Pular", app 1.81) or brought back: open, its reminder on the next still to do. */
+export function skip(e, at, skipIt, now, zone) {
+  if (!read(e.repeat)) return e;
+  const skipped = skippedOf(e);
+  if (skipIt) skipped.add(at);
+  else skipped.delete(at);
+  const done = doneOf(e);
+  if (skipIt) done.delete(at);
+  return settle(e, at, done, skipped, now, zone);
+}
+
+/** Its times done and let go as they are now (Repeat.settle in the app). */
+function settle(e, at, done, skipped, now, zone) {
+  const r = read(e.repeat);
+  if (!r) return e;
   let fromT = Math.min(startOf(e) ?? at, at);
   let n = 0;
-  while (times.has(fromT) && fromT < now - KEEP_DONE_MS && n++ < MAX_TIMES) {
-    times.delete(fromT);
+  while ((done.has(fromT) || skipped.has(fromT)) && fromT < now - KEEP_DONE_MS && n++ < MAX_TIMES) {
+    done.delete(fromT);
+    skipped.delete(fromT);
     const nx = next(r, fromT, zone);
     if (nx === null) break;
     fromT = nx;
@@ -220,8 +260,8 @@ export function tick(e, at, done, now, zone) {
     status: 'todo',
     doneAt: null,
     occursFrom: fromT,
-    doneTimes: writeDone([...times].filter((t) => t >= fromT)),
-    checkInAt: done ? null : e.checkInAt,
+    doneTimes: writeDone([...done].filter((t) => t >= fromT)),
+    skippedTimes: writeDone([...skipped].filter((t) => t >= fromT)),
     updatedAt: now,
   };
   after = { ...after, remindAt: nextRing(after, now, zone) };
@@ -229,7 +269,6 @@ export function tick(e, at, done, now, zone) {
     const c = current(after, now, zone);
     if (c !== null) after = { ...after, dueAt: after.dueHasTime ? c : T.startOfDay(c, zone) };
   }
-  if (done) after = { ...after, steps: Steps.write(Steps.read(e.steps).map((s) => ({ ...s, done: false }))) };
   return after;
 }
 

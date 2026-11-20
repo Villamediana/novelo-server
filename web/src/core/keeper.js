@@ -145,12 +145,12 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
       if (ci !== null) e = { ...e, checkInAt: ci };
       if (change.alarm !== null) e = { ...e, alarm: change.alarm ? 1 : 0 };
       if (change.repeat) {
-        if (STOP.has(change.repeat.every.trim().toLowerCase())) e = { ...e, repeat: null, occursFrom: null, doneTimes: '[]' };
+        if (STOP.has(change.repeat.every.trim().toLowerCase())) e = { ...e, repeat: null, occursFrom: null, doneTimes: '[]', skippedTimes: '[]' };
         else {
           const [rr, at] = repeating(change.repeat, e.remindAt !== null && e.remindAt > now ? e.remindAt : null, now, z);
           if (rr !== null) {
             const same = rr === old.repeat && old.occursFrom !== null;
-            e = { ...e, repeat: rr, remindAt: at, occursFrom: same || kindOf(e) !== 'task' ? e.occursFrom : at, doneTimes: same ? e.doneTimes : '[]' };
+            e = { ...e, repeat: rr, remindAt: at, occursFrom: same || kindOf(e) !== 'task' ? e.occursFrom : at, doneTimes: same ? e.doneTimes : '[]', skippedTimes: same ? e.skippedTimes ?? '[]' : '[]' };
           }
         }
       }

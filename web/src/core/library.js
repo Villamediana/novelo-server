@@ -129,6 +129,7 @@ export class Library {
       rungAt: null,
       occursFrom: same ? e.occursFrom : rule !== null && kindOf(e) === 'task' ? at : null,
       doneTimes: same ? e.doneTimes : '[]',
+      skippedTimes: same ? e.skippedTimes ?? '[]' : '[]',
       alarm: alarm === null ? e.alarm : alarm ? 1 : 0,
       updatedAt: this.now,
     });

@@ -157,3 +157,20 @@ test('Hoje groups the same', () => {
   const mine = sectionsFor('today', all, sp, now).map(([k, items]) => ({ label: words[k], ids: items.map((e) => `${e.id}@${e.remindAt}`) }));
   assert.deepEqual(mine, fx.today.sections);
 });
+
+test('a time let go (Pular): the same rows, times and rings', () => {
+  const e6 = all.find((e) => e.id === 6);
+  const wed14 = now - 1_800_000;
+  const tue20 = now - day + 5 * 3_600_000 + 1_800_000;
+  const skipped = R.skip(e6, wed14, true, now, sp);
+  const back = R.skip(skipped, wed14, false, now, sp);
+  const done = R.tick(e6, tue20, true, now, sp);
+  [['skip', skipped], ['back', back], ['done', done]].forEach(([name, e], i) => {
+    const c = fx.skips[i];
+    assert.equal(c.name, name);
+    assert.deepEqual(e, c.row, `row · ${name}`);
+    assert.deepEqual(R.timesOf(e, now + day, sp), c.times, `times · ${name}`);
+    assert.equal(R.current(e, now, sp), c.current, `current · ${name}`);
+    assert.equal(R.nextRing(e, now, sp), c.nextRing, `nextRing · ${name}`);
+  });
+});
