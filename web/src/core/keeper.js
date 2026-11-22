@@ -15,10 +15,11 @@ const EARLY_MS = 30 * 60_000;
 
 /**
  * [plan] into [data]. [captureId]: what it came from; [sentPhotos]/[sentFiles]: the captures she sent
- * with it, in the model's numbering; [photo]: the photo sent alone; [saidAt]: when she said it.
+ * with it, in the model's numbering; [photo]: the photo sent alone; [saidAt]: when she said it; [diaryAt]: the
+ * moment whose day a diary made here belongs to (photos sent alone: the day they were taken; null: now).
  * Returns {outcomes, touched, meds, medsChanged}.
  */
-export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles = [], photo = null, saidAt = null, zone, now = data.clock(), alarmByDefault = true } = {}) {
+export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles = [], photo = null, saidAt = null, diaryAt = null, zone, now = data.clock(), alarmByDefault = true } = {}) {
   return data.batch(() => {
     const picked = (nums, ids) => (nums.includes(Brain.ALL) ? [true, []] : [false, [...new Set(nums.map((n) => ids[n - 1]).filter((x) => x !== undefined))]]);
     const outcome = (id, action, photos, files) => {
@@ -35,6 +36,7 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
     };
     const outcomes = [];
     const touched = [];
+    const known = new Set();
     const categories = data.categories();
     const category = (name) => {
       const c = Categories.pick(name, categories);
@@ -53,11 +55,13 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
       if (to !== null && !categories.includes(to)) categories.push(to);
     }
 
-    for (const item of plan.create) {
+    // The diary's day: when the photos were taken, or now (never one ahead of now).
+    const diaryDay = diaryAt !== null ? Math.min(diaryAt, now) : now;
+    for (const item of distinct(plan.create)) {
       const kind = kindKey(item.kind);
       if (!kind) continue;
       if (kind === 'diary') {
-        const day = bounds(now, z);
+        const day = bounds(diaryDay, z);
         const today = data.diariesBetween(day[0], day[1])[0];
         if (today) {
           const body = diaryMerge(today.body, item.body);
@@ -67,6 +71,7 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
             data.updateEntry({ ...e, updatedAt: now });
             outcomes.push(outcome(today.id, 'updated', item.photos, item.files));
           }
+          known.add(today.id);
           tieTopics(data, today.id, item.entities);
           for (const other of item.related) if (other !== today.id && data.entry(other)) data.link(Math.min(today.id, other), Math.max(today.id, other));
           continue;
@@ -75,6 +80,31 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
       const due = Brain.time(item.due, z, base);
       const status = kind === 'task' ? statusKey(item.status) ?? 'todo' : null;
       const [repeat, remindAt] = repeating(item.repeat, ahead(item.remindAt), now, z);
+      // A task just like one still open (the same words): that one, told some more — never a second one.
+      const twin = kind === 'task' && status !== 'done' && repeat === null ? twinOf(data, item, known, now, z, due ? due[0] : null, remindAt) : null;
+      if (twin) {
+        let e = { ...twin };
+        const steps = Steps.read(e.steps);
+        const more = item.steps.filter((a) => !isBlank(a) && !steps.some((s) => Steps.same(a, s.text))).map((a) => ({ text: a.trim(), done: false }));
+        if (more.length) e = { ...e, steps: Steps.write([...steps, ...more]) };
+        const body = item.body.trim();
+        if (body && !Words.of(e.body).join(' ').includes(Words.of(body).join(' '))) e = { ...e, body: joined(e.body, body) };
+        if (e.dueAt == null && due) e = { ...e, dueAt: due[0], dueHasTime: due[1] ? 1 : 0 };
+        if (remindAt !== null && (e.remindAt == null || e.remindAt <= now)) e = { ...e, remindAt, rungAt: null, alarm: item.alarm != null ? (item.alarm ? 1 : 0) : e.alarm };
+        if (e.category == null) {
+          const c = category(item.category);
+          if (c !== null) e = { ...e, category: c };
+        }
+        const joins = item.photos.length > 0 || item.files.length > 0;
+        if (!same(e, twin) || joins) data.updateEntry({ ...e, updatedAt: now });
+        // Changed or not, it is what she asked for: its card is there in the answer.
+        outcomes.push(outcome(e.id, 'updated', item.photos, item.files));
+        if (e.remindAt !== twin.remindAt) touched.push(e.id);
+        known.add(e.id);
+        tieTopics(data, e.id, item.entities);
+        for (const other of item.related) if (other !== e.id && data.entry(other)) data.link(Math.min(e.id, other), Math.max(e.id, other));
+        continue;
+      }
       const entry = {
         kind,
         title: item.title.trim().slice(0, 140),
@@ -90,7 +120,8 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
         checkInAt: kind === 'task' ? ahead(item.checkInAt) : null,
         alarm: (item.alarm ?? alarmByDefault) ? 1 : 0,
         sensitive: item.sensitive ? 1 : 0,
-        createdAt: now,
+        // A diary of the day the photos were taken is that day's.
+        createdAt: kind === 'diary' ? diaryDay : now,
         updatedAt: now,
         doneAt: status === 'done' ? now : null,
         captureId,
@@ -99,6 +130,7 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
         summary: kind === 'note' ? Summary.keep(item.summary) : '',
       };
       const id = data.insertEntry(entry);
+      known.add(id);
       tieTopics(data, id, item.entities);
       for (const other of item.related) if (other !== id && data.entry(other)) data.link(Math.min(id, other), Math.max(id, other));
       outcomes.push(outcome(id, status === 'done' ? 'done' : 'created', item.photos, item.files));
@@ -179,6 +211,49 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
     });
     return { outcomes: unique, touched: [...new Set(touched)], meds: meds.meds, medsChanged: meds.changed };
   });
+}
+
+/** The model saying the same thing twice in one answer (two tasks with the same words): once, the steps, photos and files of both together. */
+function distinct(items) {
+  const out = [];
+  for (const item of items) {
+    const kind = kindKey(item.kind);
+    const words = Words.of(item.title).join(' ');
+    const i = out.findIndex((it) => kind && kind !== 'diary' && kindKey(it.kind) === kind && words.length > 0 && Words.of(it.title).join(' ') === words);
+    if (i < 0) {
+      out.push(item);
+      continue;
+    }
+    const first = out[i];
+    const names = new Set();
+    out[i] = {
+      ...first,
+      steps: [...first.steps, ...item.steps.filter((a) => !first.steps.some((s) => Steps.same(a, s)))],
+      body: isBlank(first.body) ? item.body : first.body,
+      photos: [...new Set([...first.photos, ...item.photos])],
+      files: [...new Set([...first.files, ...item.files])],
+      entities: [...first.entities, ...item.entities].filter((t) => {
+        const k = Words.of(t.name).join(' ');
+        if (names.has(k)) return false;
+        names.add(k);
+        return true;
+      }),
+    };
+  }
+  return out;
+}
+
+/**
+ * An open task with the same words as [item] (not one of [known], made or changed in this answer) that this one
+ * would only repeat: it doesn't repeat itself, and has no other day ([due]) or reminder ahead ([remind]) than the
+ * ones said — another day or hour is another time of it, a task of its own.
+ */
+function twinOf(data, item, known, now, z, due, remind) {
+  const words = Words.of(item.title).join(' ');
+  if (!words) return null;
+  return data.openTasks().find((e) => !known.has(e.id) && e.repeat == null && Words.of(e.title).join(' ') === words
+    && (due === null || e.dueAt == null || T.sameDate(T.dateOf(due, z), T.dateOf(e.dueAt, z)))
+    && (remind === null || e.remindAt == null || e.remindAt <= now || Math.floor(remind / 60_000) === Math.floor(e.remindAt / 60_000))) ?? null;
 }
 
 function same(a, b) {

@@ -298,7 +298,12 @@ export class WebMind {
       outs = JSON.parse(last.outcomes ?? '[]');
     } catch { /* none */ }
     const items = outs.filter((o) => o.action !== 'deleted').map((o) => (byId.has(o.entryId) ? [byId.get(o.entryId), WHAT[o.action] || 'mudou'] : null)).filter(Boolean);
-    return { at: last.createdAt, said: last.transcript ?? '', reply: last.reply ?? '', photo: last.source === 'photo', items, file: last.source === 'file' ? last.fileName : null };
+    let shownIds = [];
+    try {
+      shownIds = JSON.parse(last.shown ?? '[]');
+    } catch { /* none */ }
+    const shown = (Array.isArray(shownIds) ? shownIds : []).map((i) => byId.get(i)).filter(Boolean);
+    return { at: last.createdAt, said: last.transcript ?? '', reply: last.reply ?? '', photo: last.source === 'photo', items, file: last.source === 'file' ? last.fileName : null, shown };
   }
 
   diaryFor(at) {
@@ -346,7 +351,7 @@ export class WebMind {
     const heard = said || (together ? '' : said);
     const ctx = (extra) => Brain.context({
       said: heard, now, zone: z, openTasks: open, related: hits, focus: null, recent, typed: true, diary, photos: photoHits, before,
-      sent: sentPhotos, files: seen, fileAlone, categories, meds, taken, together, ...extra,
+      sent: sentPhotos, files: seen, fileAlone, categories, meds, taken, together, lang: LANG_LABEL[this.lang] ?? 'Português', ...extra,
     });
     const answer = await this.think(Brain.SYSTEM, ctx({}));
     let plan = Brain.parse(answer);
@@ -375,7 +380,9 @@ export class WebMind {
     if (Brain.isLookupOnly(plan)) plan = { ...plan, reply: plan.reply || nothing };
     plan = { ...plan, search: [], period: null };
 
-    const result = Keeper.apply(data, plan, { captureId: id, sentPhotos: sentPhotos.map((p) => p.id), sentFiles: files.map((f) => f.id), saidAt: c.createdAt, zone: z, now: data.clock() });
+    // Photos sent with nothing written: a diary made of them is the day they were taken.
+    const diaryAt = together ? Math.max(...photos.map((p) => p.createdAt)) : null;
+    const result = Keeper.apply(data, plan, { captureId: id, sentPhotos: sentPhotos.map((p) => p.id), sentFiles: files.map((f) => f.id), saidAt: c.createdAt, diaryAt, zone: z, now: data.clock() });
     const days = new Set();
     for (const p of photos) {
       const d = bounds(p.createdAt, z)[0];

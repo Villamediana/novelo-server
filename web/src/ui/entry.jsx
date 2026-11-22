@@ -64,6 +64,9 @@ export function EntryPanel({ id, fresh, onClose }) {
   const [showHidden, setShowHidden] = useState(false);
   const [newCat, setNewCat] = useState(false);
   const [leaving, leave] = useLeave(onClose);
+  // Kept as it is written (1.82): a beat after each pause, not only when the field is left.
+  const pause = useRef(null);
+  useEffect(() => () => clearTimeout(pause.current), []);
   useEffect(() => { grow(titleRef.current); grow(bodyRef.current); });
   useEffect(() => {
     const key = (ev) => { if (ev.key === 'Escape') close(); };
@@ -79,6 +82,7 @@ export function EntryPanel({ id, fresh, onClose }) {
   const sounds = soundsOf(id, captures);
   const rule = R.read(e.repeat);
   const save = () => library.edit(id, titleRef.current?.value ?? e.title, bodyRef.current?.value ?? e.body);
+  const typed = (ev) => { grow(ev.target); clearTimeout(pause.current); pause.current = setTimeout(save, 700); };
   function close() {
     save();
     library.dropIfEmpty(id);
@@ -96,7 +100,7 @@ export function EntryPanel({ id, fresh, onClose }) {
           <IconBtn icon="trash" label={t('delete')} onClick={() => { library.delete(id); app.toast(t('deleted'), () => { const back = library.undoDelete(id); if (back) app.open(back); }); leave(); }} />
         </div>
         <div className="kind-line">{t(`kind_${kind}`)} · {created}</div>
-        <textarea ref={titleRef} className="title-edit" rows={1} autoFocus={fresh} defaultValue={e.title} placeholder={t('title')} onInput={(ev) => grow(ev.target)} onBlur={save} />
+        <textarea ref={titleRef} className="title-edit" rows={1} autoFocus={fresh} defaultValue={e.title} placeholder={t('title')} onInput={typed} onBlur={save} />
         <div className="pills">
           {(['task', 'note', 'diary']).filter((k) => k !== kind).length && kind !== 'diary' ? (
             <select className="pill" value={kind} onChange={(ev) => library.setKind(id, ev.target.value)} aria-label="tipo">
@@ -122,7 +126,7 @@ export function EntryPanel({ id, fresh, onClose }) {
         {e.sensitive && !showHidden ? (
           <div className="hidden-body"><Icon name="lock" /> <button type="button" className="pill" onClick={() => setShowHidden(true)}>{t('show')}</button></div>
         ) : (
-          <textarea ref={bodyRef} className={`body-edit${kind === 'diary' ? ' diary' : ''}`} defaultValue={e.body} placeholder={t('body')} onInput={(ev) => grow(ev.target)} onBlur={save} />
+          <textarea ref={bodyRef} className={`body-edit${kind === 'diary' ? ' diary' : ''}`} defaultValue={e.body} placeholder={t('body')} onInput={typed} onBlur={save} />
         )}
         {photos.length ? <div className="photos" style={{ marginTop: 14 }}>{photos.map((c) => <Photo key={c.id} capture={c} onClick={() => app.view(c.id, photos.map((p) => p.id))} />)}</div> : null}
         {sounds.map((c) => <Sound key={c.id} c={c} />)}
@@ -140,7 +144,7 @@ export function EntryPanel({ id, fresh, onClose }) {
             ))}
             <div className="step">
               <span style={{ width: 28, display: 'grid', placeItems: 'center', color: 'var(--faint)' }}><Icon name="plus" size={18} /></span>
-              <input placeholder={t('newStep')} value={newStep} onChange={(ev) => setNewStep(ev.target.value)} onKeyDown={(ev) => { if (ev.key === 'Enter' && newStep.trim()) { library.addStep(id, newStep); setNewStep(''); } }} />
+              <input placeholder={t('newStep')} value={newStep} onChange={(ev) => setNewStep(ev.target.value)} onBlur={() => { if (newStep.trim()) { library.addStep(id, newStep); setNewStep(''); } }} onKeyDown={(ev) => { if (ev.key === 'Enter' && newStep.trim()) { library.addStep(id, newStep); setNewStep(''); } }} />
             </div>
           </>
         ) : null}

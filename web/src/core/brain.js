@@ -16,8 +16,18 @@ const MAX_FOUND = 40;
 const MAX_PHOTOS = 12;
 const TOGETHER_TEXT = 1500;
 const BEFORE_SAID = 400;
-const BEFORE_REPLY = 200;
+const BEFORE_REPLY = 300;
 const MAX_BEFORE_ITEMS = 6;
+const MAX_BEFORE_SHOWN = 12;
+/** The app's language when none is given (the app's own default). */
+export const DEFAULT_LANG = 'Português';
+/** Where "Mudar o tipo" sends an item, as the model reads it. */
+const REDO_KINDS = {
+  task: 'tarefa (em "create", "kind": "task")',
+  note: 'nota (em "create", "kind": "note")',
+  diary: 'diário (em "create", "kind": "diary")',
+  med: 'remédio (em "meds")',
+};
 const FOCUS_BODY = 800;
 const SUMMARY_LINE = 400;
 export const PEEK = 800;
@@ -168,6 +178,7 @@ export function context(o) {
   const today = o.diary && o.diary.id !== focus?.id ? o.diary : null;
   const shown = new Set([focus?.id, today?.id].filter((x) => x != null));
   const tasks = openTasks.filter((e) => !shown.has(e.id)).slice(0, MAX_TASKS);
+  s += `IDIOMA DO APP: ${o.lang ?? DEFAULT_LANG}\n\n`;
   if (categories.length) s += `CATEGORIAS DAS TAREFAS: ${categories.join(', ')}\n\n`;
   const named = meds.filter((m) => !isBlank(m.name)).map((m) => ({ m, ended: D.ended(m, now) }))
     .sort((a, b) => {
@@ -227,8 +238,12 @@ export function context(o) {
   if (before) {
     s += `\nANTES DISSO (a última conversa, ${T.stamp(before.at, zone)}):\n`;
     s += 'ela: ' + (before.file != null ? `(mandou o arquivo "${take(before.file, 80)}")` : before.photo ? '(mandou uma foto)' : `"${nl(take(String(before.said).trim(), BEFORE_SAID))}"`) + '\n';
-    if (!isBlank(before.reply)) s += `você: "${take(before.reply.trim(), BEFORE_REPLY)}"\n`;
+    if (!isBlank(before.reply)) s += `você: "${nl(take(before.reply.trim(), BEFORE_REPLY))}"\n`;
     for (const [e, what] of (before.items ?? []).slice(0, MAX_BEFORE_ITEMS)) s += `${what}: ${listed.has(e.id) ? `#${e.id} (acima)` : line(e, zone, now)}\n`;
+    // What it showed her (the list she may now ask to put in Hoje): pointed to when already above.
+    for (const e of (before.shown ?? []).filter((x) => !(before.items ?? []).some(([i]) => i.id === x.id)).slice(0, MAX_BEFORE_SHOWN)) {
+      s += `mostrado: ${listed.has(e.id) ? `#${e.id} (acima)` : line(e, zone, now)}\n`;
+    }
   }
   const at = T.parts(now, zone);
   s += `\nAGORA: ${T.PT_WEEKDAYS[at.dow - 1]}, ${T.stamp(now, zone)} (${zone})\n`;
@@ -255,6 +270,20 @@ export function context(o) {
   }
   if (o.together) {
     s += '\nELA SÓ MANDOU AS FOTOS, SEM DIZER NADA.\n';
+    return s;
+  }
+  if (o.redo) {
+    // "Mudar o tipo" (app 1.82): she chose where it goes; the model organizes that one item again, there.
+    const target = REDO_KINDS[o.redo.kind] ?? o.redo.kind;
+    const was = { task: 'tarefa', note: 'nota', diary: 'diário' }[kindOf(o.redo.was)];
+    s += `\nELA ESCOLHEU ONDE ISTO VAI: ${target}.\n`;
+    s += `O Novelo tinha guardado como ${was} e errou; esse item sai pra dar lugar ao novo. `;
+    s += `Organize de novo só isto, como ${target}, com o que está escrito nele (a data, o lembrete e as etapas que tiver). `;
+    s += 'Nada mais: não crie outras coisas nem mude outros itens.\n';
+    const then = o.redo.said?.trim();
+    if (then) s += `O QUE ELA DISSE NA HORA (só pra entender): "${nl(take(then, BEFORE_SAID))}"\n`;
+    s += '\nO ITEM, COMO ESTÁ ESCRITO:\n';
+    s += `"${String(said).trim()}"\n`;
     return s;
   }
   if (o.photo && takenOn != null) {
