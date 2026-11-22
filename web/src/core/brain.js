@@ -307,6 +307,19 @@ const firstNumber = (v) => {
 };
 const oneOrMany = (v) => (Array.isArray(v) ? v.filter((x) => x !== null && x !== undefined) : v === null || v === undefined ? [] : [v]);
 const strings = (v) => oneOrMany(v).filter((x) => typeof x !== 'object').map(String);
+/** "show" (app 1.83.2): items whole (12, "12", "#12") or steps alone ({id, step|steps}) — the items' ids, each once, in order. */
+function showIds(v) {
+  const id = (x) => {
+    if (typeof x === 'number') return Number.isFinite(x) ? Math.trunc(x) : null;
+    if (typeof x === 'string') {
+      const t = x.trim().replace(/^#/, '');
+      return /^-?\d+$/.test(t) ? Number(t) : null;
+    }
+    return null;
+  };
+  const ids = oneOrMany(v).map((x) => (x && typeof x === 'object' && !Array.isArray(x) ? id(x.id) : id(x))).filter((x) => x !== null);
+  return [...new Set(ids)];
+}
 const longs = (v) => oneOrMany(v).map((x) => (typeof x === 'number' ? x : typeof x === 'string' && /^-?\d+$/.test(x.trim()) ? Number(x) : null)).filter((x) => x !== null && Number.isFinite(x)).map(Math.trunc);
 const WEEK_NAMES = [['seg', 'mon', 'lun'], ['ter', 'tue', 'mar'], ['qua', 'wed', 'mie', 'mié'], ['qui', 'thu', 'jue'], ['sex', 'fri', 'vie'], ['sab', 'sáb', 'sat'], ['dom', 'sun']];
 function weekDays(v) {
@@ -376,7 +389,7 @@ export function parse(answer) {
     })),
     search: strings(raw.search),
     period,
-    show: longs(raw.show),
+    show: showIds(raw.show),
     showPhotos: longs(raw.show_photos),
     showMeds: oneOrMany(raw.show_meds).map(firstNumber).filter((x) => x !== null),
     keepAudio: bool(raw.keep_audio),
