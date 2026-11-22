@@ -57,6 +57,8 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
 
     // The diary's day: when the photos were taken, or now (never one ahead of now).
     const diaryDay = diaryAt !== null ? Math.min(diaryAt, now) : now;
+    // In Hoje by hand ("today", app 1.83): today's start, the due day untouched.
+    const myDay = bounds(now, z)[0];
     for (const item of distinct(plan.create)) {
       const kind = kindKey(item.kind);
       if (!kind) continue;
@@ -95,6 +97,7 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
           const c = category(item.category);
           if (c !== null) e = { ...e, category: c };
         }
+        if (item.today === true) e = { ...e, myDay };
         const joins = item.photos.length > 0 || item.files.length > 0;
         if (!same(e, twin) || joins) data.updateEntry({ ...e, updatedAt: now });
         // Changed or not, it is what she asked for: its card is there in the answer.
@@ -128,6 +131,7 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
         category: kind === 'task' ? category(item.category) : null,
         // A note the model saw worth it: its points too, "Em tópicos" (a task, the diary: never).
         summary: kind === 'note' ? Summary.keep(item.summary) : '',
+        myDay: kind === 'task' && item.today === true ? myDay : null,
       };
       const id = data.insertEntry(entry);
       known.add(id);
@@ -171,6 +175,7 @@ export function apply(data, plan, { captureId = null, sentPhotos = [], sentFiles
       }
       const due = Brain.time(change.due, z, base);
       if (due) e = { ...e, dueAt: due[0], dueHasTime: due[1] ? 1 : 0 };
+      if (change.today != null && kindOf(e) === 'task') e = { ...e, myDay: change.today ? myDay : null };
       const r = ahead(change.remindAt);
       if (r !== null) e = { ...e, remindAt: r };
       const ci = ahead(change.checkInAt);

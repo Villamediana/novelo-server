@@ -2,14 +2,14 @@
 // same ids. Every change made here is marked to go up (see sync.js); what comes down is put in with
 // [put] (not marked). Listeners are told after each change (the screens draw again).
 
-/** The columns of each table and what a new row has in them (the phone's database, version 19). */
+/** The columns of each table and what a new row has in them (the phone's database, version 20). */
 export const SCHEMA = {
   entries: {
     pk: ['id'],
     defaults: {
       id: 0, kind: 'note', title: '', body: '', status: null, steps: '[]', tags: '[]', dueAt: null, dueHasTime: 0, remindAt: null, checkInAt: null,
       sensitive: 0, createdAt: 0, updatedAt: 0, doneAt: null, captureId: null, repeat: null, position: null, category: null, rungAt: null,
-      occursFrom: null, doneTimes: '[]', alarm: 1, summary: '', skippedTimes: '[]',
+      occursFrom: null, doneTimes: '[]', alarm: 1, summary: '', skippedTimes: '[]', myDay: null,
     },
   },
   captures: {
@@ -17,7 +17,7 @@ export const SCHEMA = {
     defaults: {
       id: 0, createdAt: 0, source: 'text', durationMs: 0, transcript: null, state: 'recorded', error: null, reply: null, outcomes: '[]', shown: '[]',
       focusEntryId: null, heard: null, heardPieces: 0, heardBy: null, tries: 0, description: null, shownPhotos: '[]', turn: 0, sound: 0, partOf: null,
-      fileName: null, fileMime: null, fileSize: 0, redoOf: null, redoAs: null,
+      fileName: null, fileMime: null, fileSize: 0, redoOf: null, redoAs: null, shownSteps: '{}',
     },
   },
   entities: { pk: ['id'], defaults: { id: 0, name: '', norm: '', type: 'topic' } },

@@ -121,6 +121,8 @@ export function line(e, zone, now, long = false, bodyMax = 220) {
   if (e.category != null && kind === 'task') s += ` · categoria ${e.category}`;
   if (e.dueAt != null) s += ` · prazo ${e.dueHasTime ? T.stamp(e.dueAt, zone) : T.day(e.dueAt, zone)}`;
   if (e.doneAt != null) s += ` · feito em ${T.day(e.doneAt, zone)}`;
+  // Put in Hoje today (by hand or asked, app 1.83).
+  if (isOpenTask(e) && e.myDay != null && T.day(e.myDay, zone) === T.day(now, zone)) s += ' · no Hoje';
   const rule = R.read(e.repeat);
   if (statusOf(e) !== 'done' && e.remindAt != null) {
     if (e.remindAt > now) s += ` · lembrete ${T.stamp(e.remindAt, zone)}`;
@@ -365,11 +367,12 @@ export function parse(answer) {
       kind: c.kind, title: c.title, body: str(c.body) ?? '', summary: Summary.points(c.summary), tags: strings(c.tags), entities: topicsOf(c.entities), category: str(c.category),
       due: str(c.due), remindAt: str(c.remind_at), checkInAt: str(c.check_in_at), repeat: repeatAsk(c.repeat), steps: strings(c.steps),
       status: str(c.status), sensitive: bool(c.sensitive), related: longs(c.related), photos: picks(c.photos), files: picks(c.files), alarm: optBool(c.alarm),
+      today: optBool(c.today),
     })).filter((c) => !isBlank(c.title) && kindKey(c.kind) !== null),
     update: (Array.isArray(raw.update) ? raw.update : []).filter((c) => c && typeof c === 'object' && longs(c.id).length).map((c) => ({
       id: longs(c.id)[0], status: str(c.status), stepsDone: strings(c.steps_done), addSteps: strings(c.add_steps), title: str(c.title), append: str(c.append), body: str(c.body), summary: Summary.points(c.summary),
       category: str(c.category), due: str(c.due), remindAt: str(c.remind_at), checkInAt: str(c.check_in_at), repeat: repeatAsk(c.repeat), entities: topicsOf(c.entities),
-      delete: bool(c.delete), photos: picks(c.photos), files: picks(c.files), alarm: optBool(c.alarm),
+      delete: bool(c.delete), photos: picks(c.photos), files: picks(c.files), alarm: optBool(c.alarm), today: optBool(c.today),
     })),
     search: strings(raw.search),
     period,

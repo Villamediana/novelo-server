@@ -6,6 +6,8 @@ import * as R from './repeat.js';
 import { Categories, kindOf, statusOf } from './words.js';
 
 export const NEAR_BACK_MS = 2 * 60 * 60_000;
+/** How many days after today Hoje looks ahead ("Próximos dias"). */
+export const UPCOMING_DAYS = 3;
 
 /** One of the times of a task that repeats, as Hoje shows it. */
 export function atTime(e, time, done) {
@@ -72,12 +74,23 @@ export function sectionsFor(tab, all, zone, now = Date.now()) {
         else loose.push(e);
       } else if (e.remindAt != null && e.remindAt < from && e.dueAt == null) late.push(e);
       else if (e.dueAt != null && e.dueAt < endToday) loose.push(e);
+      // Put in Hoje today by hand (app 1.83), whatever its day.
+      else if (e.myDay != null && e.myDay >= startToday && e.myDay < endToday) loose.push(e);
     }
     const struck = tasks.filter((e) => statusOf(e) === 'done' && !R.repeats(e) && e.doneAt != null && e.doneAt >= startToday)
       .map((e) => [e, todayTime(e, from, endToday)]).filter(([, h]) => h !== null && h >= back);
     timed.push(...struck);
     const repeating = new Set(open.filter(R.repeats).map((e) => e.id));
-    const placed = new Set([...late.map((e) => e.id), ...timed.map((x) => x[0].id), ...loose.map((e) => e.id)]);
+    // The next days (app 1.82): due or reminding from tomorrow to UPCOMING_DAYS days on; not one that repeats.
+    const endUpcoming = T.atStartOfDay(T.addDays(today, 1 + UPCOMING_DAYS), zone);
+    const placedToday = new Set([...late.map((e) => e.id), ...timed.map((x) => x[0].id), ...loose.map((e) => e.id)]);
+    const upcomingAt = (e) => {
+      const ats = [e.dueAt, e.remindAt].filter((x) => x != null && x >= endToday && x < endUpcoming);
+      return ats.length ? Math.min(...ats) : null;
+    };
+    const upcoming = open.filter((e) => !repeating.has(e.id) && !placedToday.has(e.id)).map((e) => [e, upcomingAt(e)]).filter(([, at]) => at !== null)
+      .sort((a, b) => a[1] - b[1] || a[0].createdAt - b[0].createdAt).map((x) => x[0]);
+    const placed = new Set([...placedToday, ...upcoming.map((e) => e.id)]);
     const doing = open.filter((e) => statusOf(e) === 'doing' && !placed.has(e.id) && !repeating.has(e.id));
     const inCards = new Set(struck.map((x) => x[0].id));
     const doneToday = [...tasks.filter((e) => e.doneAt != null && e.doneAt >= startToday && !inCards.has(e.id)).map((e) => [e, e.doneAt]), ...doneTimes]
@@ -87,6 +100,7 @@ export function sectionsFor(tab, all, zone, now = Date.now()) {
       ['for_today', timed.sort((a, b) => a[1] - b[1]).map((x) => x[0])],
       ['through_day', loose.sort((a, b) => (a.dueAt ?? a.createdAt) - (b.dueAt ?? b.createdAt))],
       ['doing', doing],
+      ['upcoming', upcoming],
       ['done_today', doneToday],
     ];
   }
@@ -106,12 +120,14 @@ export function sectionsFor(tab, all, zone, now = Date.now()) {
 
 /** How many things are for today (the number next to Hoje): tasks due today or late, reminders still to come today. */
 export function todayCount(entries, zone, now = Date.now()) {
+  const start = T.atStartOfDay(T.dateOf(now, zone), zone);
   const end = T.atStartOfDay(T.addDays(T.dateOf(now, zone), 1), zone);
   let n = 0;
   for (const e of entries) {
     if (kindOf(e) !== 'task' || statusOf(e) === 'done') continue;
     if (R.repeats(e)) n += R.timesOf(e, end, zone).filter((t) => !t[1]).length;
     else if ((e.dueAt != null && e.dueAt < end) || (e.remindAt != null && e.remindAt < end)) n += 1;
+    else if (e.myDay != null && e.myDay >= start && e.myDay < end) n += 1;
   }
   return n;
 }

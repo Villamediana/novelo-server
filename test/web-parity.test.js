@@ -156,9 +156,11 @@ test('the search finds the same, in the same order', () => {
 });
 
 test('Hoje groups the same', () => {
-  const words = { late: 'Atrasadas', for_today: 'Pra hoje', through_day: 'Ao longo do dia', doing: 'Em andamento', done_today: 'Feitas hoje' };
+  const words = { late: 'Atrasadas', for_today: 'Pra hoje', through_day: 'Ao longo do dia', doing: 'Em andamento', upcoming: 'Próximos dias', done_today: 'Feitas hoje' };
   const mine = sectionsFor('today', all, sp, now).map(([k, items]) => ({ label: words[k], ids: items.map((e) => `${e.id}@${e.remindAt}`) }));
   assert.deepEqual(mine, fx.today.sections);
+  const before = sectionsFor('today', all, sp, now - day).map(([k, items]) => ({ label: words[k], ids: items.map((e) => `${e.id}@${e.remindAt}`) }));
+  assert.deepEqual(before, fx.today.dayBefore);
 });
 
 test('a time let go (Pular): the same rows, times and rings', () => {
