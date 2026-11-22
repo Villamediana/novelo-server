@@ -80,12 +80,15 @@ test('the context the model sees, to the character', () => {
     ...common,
     said: 'preciso ligar pro Pedro sobre o contrato da torre',
     photos: [{ id: 40, takenAt: now - day, description: 'recibo do mercado', text: 'Total R$ 32,00' }],
-    before: { at: now - 600_000, said: 'lembra de pagar o IPVA', reply: 'Lembrete pra pagar o IPVA às 17h.', items: [[all[1], 'criado']] },
+    before: { at: now - 600_000, said: 'lembra de pagar o IPVA', reply: 'Lembrete pra pagar o IPVA às 17h.\n- e o relatório está atrasado', items: [[all[1], 'criado']], shown: [all[6], all[3], all[1]] },
     files: [{ name: 'contrato.pdf', mime: 'application/pdf', size: 230_000, peek: '', about: 'contrato de aluguel' }],
   });
   assert.equal(text, fx.context.text);
-  const lookup = Brain.context({ ...common, said: 'o que eu fiz ontem?', looked: 'de 2026-11-10 a 2026-11-10' });
+  const lookup = Brain.context({ ...common, said: 'o que eu fiz ontem?', looked: 'de 2026-11-10 a 2026-11-10', lang: 'Español' });
   assert.equal(lookup, fx.context.lookup);
+  // "Mudar o tipo": the item organized again where she chose.
+  const redo = Brain.context({ ...common, said: 'Ideias pro aniversário da Ana\nPiquenique no parque', redo: { kind: 'task', was: all[3], said: 'tive umas ideias pro aniversário da Ana' } });
+  assert.equal(redo, fx.context.redo);
 });
 
 test('reading the model\'s answer', () => {
@@ -129,7 +132,7 @@ test('a plan written in: the same rows after, on both', () => {
     data.put('entities', '1', { ...pedro });
     data.put('entry_topics', '1:1', { entryId: 1, topicId: 1 });
     const before = { entries: all.map((e) => e.id), meds: [1], entities: [1] };
-    const result = apply(data, Brain.parse(c.plan), { captureId: 99, saidAt: now - 5_000, zone: sp, now, alarmByDefault: true });
+    const result = apply(data, Brain.parse(c.plan), { captureId: 99, saidAt: now - 5_000, sentPhotos: [40], diaryAt: c.diaryAt ?? null, zone: sp, now, alarmByDefault: true });
     const fix = phoneIds(data, before);
     const rows = (t, by) => fix([...data.tables[t].values()]).sort(by);
     const label = c.plan.slice(0, 60);

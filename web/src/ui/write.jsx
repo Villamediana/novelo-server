@@ -245,14 +245,44 @@ export function WritePage() {
 
       {answer ? (
         <div className="answer" key={answer.captureId}>
-          {answer.reply ? <p className="reply">{answer.reply}</p> : null}
+          {answer.reply ? <ReplyText text={answer.reply} /> : null}
           <div className="group">
-            {answer.outcomes.filter((o) => o.action !== 'deleted' && data.entry(o.entryId)).map((o) => <EntryCard key={`o${o.entryId}`} e={data.entry(o.entryId)} label={t(`outcome_${o.action}`)} />)}
-            {answer.shown.filter((s) => data.entry(s) && !answer.outcomes.some((o) => o.entryId === s)).map((s) => <EntryCard key={`s${s}`} e={data.entry(s)} />)}
+            {answer.outcomes.filter((o) => o.action !== 'deleted' && data.entry(o.entryId) && !answer.shown.includes(o.entryId)).map((o) => <EntryCard key={`o${o.entryId}`} e={data.entry(o.entryId)} label={t(`outcome_${o.action}`)} />)}
+            {answer.shown.filter((s) => data.entry(s)).map((s) => <EntryCard key={`s${s}`} e={data.entry(s)} />)}
           </div>
           {answer.photos.length ? <div className="photos" style={{ marginTop: 10 }}>{answer.photos.map((p) => data.capture(p) ? <Photo key={p} capture={data.capture(p)} onClick={() => app.view(p, answer.photos)} /> : null)}</div> : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** "- a", "• a", "1. a": a point of a list (the app's ui/home/Answer.kt, Reply). */
+const POINT = /^\s*(?:[-•*·–—]|\d{1,2}[.)])\s+(.+)$/;
+
+/** The answer's words as the model was asked to write them: a paragraph a line, the points of a list together. */
+export function replyBlocks(text) {
+  const out = [];
+  let points = [];
+  const close = () => { if (points.length) { out.push({ points }); points = []; } };
+  for (const raw of String(text).replace(/\*\*|__/g, '').replace(/^\s*#{1,6}\s*/gm, '').split('\n')) {
+    const line = raw.trim();
+    const m = POINT.exec(line);
+    if (!line) close();
+    else if (m) points.push(m[1].trim());
+    else { close(); out.push({ para: line }); }
+  }
+  close();
+  return out;
+}
+
+/** The answer laid out to read (1.82): paragraphs, and each thing listed on a line of its own — never one long block. */
+function ReplyText({ text }) {
+  return (
+    <div className="reply">
+      {replyBlocks(text).map((b, i) => (b.points
+        ? <ul key={i} className="reply-points">{b.points.map((p, k) => <li key={k}>{p}</li>)}</ul>
+        : <p key={i}>{b.para}</p>))}
     </div>
   );
 }
