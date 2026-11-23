@@ -13,7 +13,7 @@ import { here } from './core/time.js';
 import { strings, pickLang } from './ui/i18n.js';
 import { Ctx, Yarn } from './ui/kit.jsx';
 import { App } from './ui/app.jsx';
-import { LinkPage, PhonePage, isPhone } from './ui/link.jsx';
+import { FriendPage, LinkPage, PhonePage, isPhone } from './ui/link.jsx';
 import { smaller } from './ui/write.jsx';
 
 const root = createRoot(document.getElementById('root'));
@@ -117,6 +117,11 @@ async function start() {
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { look(prefs); grain().catch(() => {}); });
   const lang = pickLang(prefs.lang);
   const t = strings(lang);
+  // A friend's invite (app 1.84): it is opened by the app; here, only where to get it.
+  if (location.pathname.replace(/\/+$/, '') === '/web/amigo') {
+    root.render(<FriendPage t={t} />);
+    return;
+  }
   if (isPhone()) {
     root.render(<PhonePage t={t} />);
     return;
