@@ -63,9 +63,10 @@ export function prepare(job, body) {
 }
 
 export class Api {
-  constructor({ config, settings, devices, limits, router, telemetry, plans, sync, web, now = Date.now, heartbeatMs = HEARTBEAT }) {
+  constructor({ config, settings, devices, limits, router, telemetry, plans, sync, social, web, now = Date.now, heartbeatMs = HEARTBEAT }) {
     this.plans = plans;
     this.sync = sync;
+    this.social = social;
     this.web = web;
     this.heartbeatMs = heartbeatMs;
     this.config = config;
@@ -136,6 +137,9 @@ export class Api {
       }
       if (this.sync && (path.startsWith('/v1/sync/') || path.startsWith('/v1/link') || path.startsWith('/v1/web/'))) {
         return await this.syncRoute(req, res, path);
+      }
+      if (this.social && (path.startsWith('/v1/friends') || path.startsWith('/v1/docs') || path === '/v1/social')) {
+        return await this.socialRoute(req, res, path);
       }
       if (req.method === 'POST' && path === '/v1/devices/challenge') {
         this.knock(req);
@@ -476,6 +480,71 @@ Api.prototype.syncRoute = async function syncRoute(req, res, path) {
       'X-Content-Type-Options': 'nosniff',
     });
     return res.end(bytes);
+  }
+  throw new HttpError(404, 'not_found', 'Não existe.');
+};
+
+// ------------------------------------------------------------------ friends and what they share
+
+const SOCIAL_BODY = 4 * 1024 * 1024;
+
+/** Friends, their invites and the docs they share (see src/social.js and docs/AMIGOS.md). Phones only. */
+Api.prototype.socialRoute = async function socialRoute(req, res, path) {
+  const social = this.social;
+  const url = new URL(req.url, 'http://x');
+  const num = (name, fallback) => {
+    const n = Number.parseInt(url.searchParams.get(name) ?? '', 10);
+    return Number.isSafeInteger(n) ? n : fallback;
+  };
+  const aborted = new AbortController();
+  res.on('close', () => aborted.abort());
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  const limit = req.method === 'POST' || req.method === 'PUT' ? SOCIAL_BODY : 0;
+  const declared = Number(req.headers['content-length'] || 0);
+  if (limit && this.syncHeld + Math.min(declared || limit, limit) > this.maxSyncHeld) throw new HttpError(503, 'busy', 'Servidor cheio.', { retry_after: 15 });
+  const hold = limit ? Math.min(declared || limit, limit) : 0;
+  this.syncHeld += hold;
+  let s;
+  try {
+    s = await this.signed(req, path, limit);
+  } finally {
+    this.syncHeld -= hold;
+  }
+  const me = s.install;
+  social.rate(me);
+  const body = () => parseJson(s.raw);
+  const wait = () => Math.min(Math.max(num('wait', 0), 0), 25) * 1000;
+
+  if (req.method === 'GET' && path === '/v1/social') {
+    const seq = await social.waitFeed(me, num('since', -1), wait(), aborted.signal);
+    if (res.destroyed) return;
+    return sendJson(res, 200, { seq });
+  }
+  if (req.method === 'POST' && path === '/v1/friends/invite') return sendJson(res, 200, social.invite(me, body()));
+  const inv = /^\/v1\/friends\/invite\/([A-Za-z0-9_-]{1,64})(\/accept)?$/.exec(path);
+  if (inv && req.method === 'GET' && !inv[2]) return sendJson(res, 200, social.peek(me, inv[1]));
+  if (inv && req.method === 'POST' && inv[2]) return sendJson(res, 200, social.accept(me, inv[1], body()));
+  if (inv && req.method === 'DELETE' && !inv[2]) return sendJson(res, 200, social.cancelInvite(me, inv[1]));
+  if (req.method === 'GET' && path === '/v1/friends') return sendJson(res, 200, social.friends(me));
+  const fr = /^\/v1\/friends\/([A-Za-z0-9_-]{1,64})(\/card)?$/.exec(path);
+  if (fr && req.method === 'PUT' && fr[2]) return sendJson(res, 200, social.setCard(me, fr[1], body()));
+  if (fr && req.method === 'DELETE' && !fr[2]) return sendJson(res, 200, social.unfriend(me, fr[1]));
+
+  if (req.method === 'GET' && path === '/v1/docs') return sendJson(res, 200, social.docs(me));
+  if (req.method === 'POST' && path === '/v1/docs') return sendJson(res, 200, social.share(me, body()));
+  const doc = /^\/v1\/docs\/([A-Za-z0-9_-]{1,64})(\/(?:ops|here|members|snapshot))?$/.exec(path);
+  if (doc) {
+    const [, id, part] = doc;
+    if (!part && req.method === 'DELETE') return sendJson(res, 200, social.leave(me, id));
+    if (part === '/members' && req.method === 'PUT') return sendJson(res, 200, social.members(me, id, body()));
+    if (part === '/ops' && req.method === 'POST') return sendJson(res, 200, social.push(me, id, body()));
+    if (part === '/ops' && req.method === 'GET') {
+      const out = await social.changes(me, id, num('since', 0), num('hv', -1), wait(), aborted.signal);
+      if (res.destroyed) return;
+      return sendJson(res, 200, out);
+    }
+    if (part === '/here' && req.method === 'PUT') return sendJson(res, 200, social.setHere(me, id, body()));
+    if (part === '/snapshot' && req.method === 'POST') return sendJson(res, 200, social.snapshot(me, id, body()));
   }
   throw new HttpError(404, 'not_found', 'Não existe.');
 };

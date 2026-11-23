@@ -12,6 +12,7 @@ import { Plans } from './plans.js';
 import { googleRoots, Revocations } from './attest.js';
 import { AutoBudget } from './budget.js';
 import { Sync } from './sync.js';
+import { Social } from './social.js';
 import { WebPages } from './web.js';
 
 export function build({ config = new Config(), dataDir = config.dataDir, fetcher = fetch, now = Date.now, roots = googleRoots(), heartbeatMs } = {}) {
@@ -25,8 +26,9 @@ export function build({ config = new Config(), dataDir = config.dataDir, fetcher
   const telemetry = new Telemetry({ db, now });
   const router = new Router({ db, config, settings, limits, fetcher, now });
   const sync = new Sync({ db, config, dataDir, now });
+  const social = new Social({ db, config, now });
   const web = new WebPages({ config });
-  const api = new Api({ config, settings, devices, limits, router, telemetry, plans, sync, web, now, heartbeatMs });
+  const api = new Api({ config, settings, devices, limits, router, telemetry, plans, sync, social, web, now, heartbeatMs });
   const budget = new AutoBudget({ db, settings, fetcher, now });
   const admin = new Admin({ db, config, settings, devices, limits, router, telemetry, plans, budget, secret, fetcher, now });
   budget.apply();
@@ -44,6 +46,7 @@ export function build({ config = new Config(), dataDir = config.dataDir, fetcher
     setInterval(flush, 1000),
     setInterval(() => limits.prune(), 10 * 60_000),
     setInterval(() => sync.prune(), 60_000),
+    setInterval(() => social.prune(), 30_000),
     setInterval(() => telemetry.prune(settings.get('keep_days')), 6 * 3600_000),
     // New subscribers move the automatic ceilings; the dollar, twice a day.
     setInterval(() => {
@@ -65,7 +68,7 @@ export function build({ config = new Config(), dataDir = config.dataDir, fetcher
     flush();
     db.close();
   };
-  return { db, config, settings, devices, limits, telemetry, router, api, admin, plans, budget, revocations, sync, web, flush, close };
+  return { db, config, settings, devices, limits, telemetry, router, api, admin, plans, budget, revocations, sync, social, web, flush, close };
 }
 
 export function listen(handler, host, port, name) {

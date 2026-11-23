@@ -135,6 +135,20 @@ export function PhonePage({ t }) {
   );
 }
 
+/** A friend's invite link opened in the browser (no app there, or a computer): it is for the app on the phone. */
+export function FriendPage({ t }) {
+  return (
+    <div className="center">
+      <div className="phone">
+        <Yarn size={72} />
+        <h1>{t('friendTitle')}</h1>
+        <p className="lead">{t('friendLead')}</p>
+        <a className="big-btn" href="https://github.com/Villamediana/Novelo/releases/latest" rel="noopener noreferrer">{t('mobileGet')}</a>
+      </div>
+    </div>
+  );
+}
+
 /** A phone or a tablet (the page is for the computer). */
 export function isPhone() {
   const ua = navigator.userAgent;
